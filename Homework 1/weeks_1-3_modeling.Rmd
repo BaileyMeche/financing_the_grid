@@ -31,6 +31,8 @@ library(ggplot2)
 library(ggdensity)
 library(plotly)
 library(magrittr)
+wd <- "C:/Users/Owner/Box/spring26/GridFinancing/hw1/Homework1&3 Files from TZ-selected" # set your working directory here 
+setwd(wd) 
 ```
 
 ## Download data 
@@ -40,16 +42,16 @@ open the PJM data set (“data_PJM.csv”), as below. This dataset is constructe
 pricing data from PJM’s Data Miner 2 and includes both day-ahead (“DA”) and real-time(“RT”) locational marginal pricing (“LMP”) data.
 
 ```{r q3}
-data_PJM <- fread('PJM Data.csv')
+data_PJM <- fread(paste0(wd,"/", "PJM Daily.csv"))
 ```
 
 4. Load the following data set, which combines pricing and weather data for Chicago, Milwaukee, and Corpus Christi.
 
 ```{r q4}
-data_Chicago <- fread('Data Chicago.csv')
-data_Milwaukee <- fread('Data Milwaukee.csv')
-data_CorpusChristi<- fread('Data Corpus Christi.csv')
-data_Austin <- fread('Data Austin.csv')
+data_Chicago <- fread(paste0(wd,"/",'Data Chicago.csv'))
+data_Milwaukee <- fread(paste0(wd,"/",'Data Milwaukee.csv'))
+data_CorpusChristi<- fread(paste0(wd,"/",'Data Corpus Christi.csv'))
+data_Austin <- fread(paste0(wd,"/",'Data Austin.csv'))
 ```
 
 ## III. Data Familiarization
@@ -65,3 +67,258 @@ names(data_PJM)
 ```{r q6}
 head(data_PJM)
 ```
+
+
+7. The code below identifies the final date of the PJM data as December, 12, 2023. How wouldyou identify the initial date?
+
+```{r q7}
+max(data_PJM$date)
+```
+
+8. The code below identifies the set of pricing node types in the PJM data and calculates how
+many observations correspond to each type. How would you do the same for pricing `nodesnames`?
+
+```{r q8}
+unique(data_PJM$type)
+data_PJM[,.N, by = type]
+```
+
+9. The code below identifies the number of unique holiday values. How would you identify thenumber of observations falling on holidays? How would you identify the number of uniquedifferent pricing nodes?
+
+```{r q9}
+length(unique(data_PJM$holiday))
+```
+
+10. The following code restricts the PJM data to only the “date” and “total_lmp_rt” fields. Whatfields would be interesting to study in conjunction?
+
+```{r q10}
+data_PJM[, .(date, total_lmp_rt)]
+```
+
+11. The code below creates a new dataset, restricted to PJM observations falling on Christmas.Create a dataset, named “holidays_PJM,” consisting of all observations falling on a holiday.
+
+```{r q11}
+xmas_PJM <- data_PJM[holiday == 'Christmas']
+```
+
+12. The code below calculates the average RT LMP on holidays in November and December,
+during AM hours, for the “'CHICAGO GEN HUB” pricing node.6 What observations arebeing selected? What is being averaged over? What stands out about the results? Write codethat averages DA LMP within each month, for the “Chicago Gen Hub.” Formulate ahypothesis based on the result you observe. How could you check your hypothesis?
+
+```{r q12}
+holidays_PJM[month == 'Dec' &
+               pnode_name == 'CHICAGO GEN HUB' &
+               am_pm == 'AM',
+  .(average_lmp_rt = mean(total_lmp_rt)), by = .(hour, year)] %>%
+  .[order(year)]
+```
+
+## IV. Introduction to Plotting
+
+13. Create a dataset called “data_CGH,” restricted to the “'CHICAGO GEN HUB.” What doesthe number of observations reflect?
+
+14. The code below generates Figure 1.7 What stands out? What is each point on the plotaveraging over? Interpret the resulting figure when color = factor(year) is removed.8 Tryplotting RT LMP by month and by hour instead of day-of-week.
+
+```{r q14}
+data_CGH$day_of_week <- factor(data_CGH$day_of_week, levels =c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"))ggplot(data_CGH[order(day_of_week)], aes(x=day_of_week,y=total_lmp_rt, color =factor(year))) +
+  stat_summary() +labs(color = '', x = '', y = 'Total RT LMP ($/MWh)') +
+  coord_cartesian(ylim = c(0, 80)) +
+  scale_y_continuous(expand = c(0,0)) +theme_classic() +
+  theme(legend.position = 'top')
+```
+
+15. Write code that plots average monthly day-ahead LMP for “CHICAGO GEN HUB.” Whathappened during the summer of 2022?
+
+16. Oftentimes, pivoting data from “wide” to “long” is helpful for plotting purposes. The
+follwing, for example, pivots the “data_CGH” by: [1] creating a “lmp_type” column that stores the names “total_lmp_rt,” “total_lmp_da,” and “prev_lmp_da”10 as entries; and [2]
+creating a corresponding “values” column that stores values of those series.11 The secondblock of code plots and compares the “total_lmp_rt” series and “total_lmp_da” series byday-of-the-week, as well as by year. What happens when you replace “day_of_week” withmonth?
+
+```{r q16}
+data_CGH_long <- data_CGH[, .(year, month, hour, day_of_week, total_lmp_rt,total_lmp_da)] %>%pivot_longer(cols = !c(year, month, hour, day_of_week),names_to = 'lmp_type',values_to = 'values')setDT(data_CGH_long)ggplot(data_CGH_long, aes(x=day_of_week,y=values, color = factor(lmp_type))) +stat_summary() +labs(color = '', x = '', y = 'LMP ($/MWh)') +coord_cartesian(ylim = c(0, 100)) +scale_y_continuous(expand = c(0,0)) +theme_classic() +theme(legend.position = 'top',axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +facet_wrap(~year)
+```
+
+17. The following code calculates average RT and DA LMPs for each day in the CGH dataset
+and then plots the empirical cumulative distribution (ECDF) of average RT LMPs by year.
+
+Note that the series corresponding to 2022 is below that for 2021 and 2023, indicating that for
+each possible value 𝑥, there were more days in 2021 and 2023 for which the average daily RT
+LMP was less than 𝑥; in other words, RT LMP was higher in 2022 than in 2021 or 2023. This
+relationship between probability distributions is known as first-order stochastic dominance(FOSD). Adjust the code below such that it also calculates the daily volatility of RT LMP,using the sd() function, and identify another example of FOSD.
+
+```{r q17}
+CGH_summary_daily <- data_CGH[, .(mean_rt_lmp = mean(total_lmp_rt),mean_da_lmp = mean(total_lmp_da)),by = .(day, month,year)]ggplot(CGH_summary_daily, aes(mean_rt_lmp, color = factor(year))) +stat_ecdf() +labs(color = '', x = 'Average RT LMP ($/MWh)',y = 'Empirical Cumulative Distribution Function') +theme_classic() +theme(legend.position = 'top')
+```
+
+## V. Pricing Anomalies and Patterns
+
+18. The “spread” field in the PJM data reflects “total_lmp_rt” less “total_lmp_da.” The code
+below calculates the volatility of this spread for each observation of the data, for CHICAGO
+GEN HUB, and plots the density of this volatility for August of each year. In which year wasthe volatility of the LMP spread more variable? Use the PJM data to show how thedistribution of volatility of the RT-DA LMP spread for the Chicago Gen Hub compares tothat for the Eastern Hub (“EASTERN HUB”).
+
+```{r q18}
+vol_daily_CGH <- data_CGH[, .(vol_spread = sd(spread, na.rm = TRUE)),by = .(day, month, year)]ggplot(vol_daily_CGH[month == 'Aug'], aes(x=vol_spread, color = factor(year))) +geom_density() +labs(x = 'Standard Deviation of RT LMP - DA LMP ($/MWh)', y = 'Probability DensityFunction', color = '') +scale_x_continuous(expand = c(0,0)) +scale_y_continuous(expand = c(0,0)) +theme_classic() +theme(legend.position = 'top')
+```
+
+19. Plot hourly RT LMP by day for the month of April 2023 (for Chicago Gen Hub).15 Notice thatRT LMP was often negative. What would negative prices mean? Try identifying other monthsor occasions for which RT LMP was negative and form a conjecture for why these negativeprices occurred.
+
+20. Which hour of the day do you think RT LMP is highest and lowest? How would the answerdepend on the season? Test your conjectures.
+
+21. The code below plots boxplots of daily RT-DA LMP spread volatility for each month of 2021
+for Chicago Gen Hub, such that individual points are outliers relative to the month, using the
+vol_daily_CGH dataset constructed in question 19. Plot the same figure for 2022 and 2023.What day in 2021-2023 had the most extreme RT-DA LMP spread volatility?
+
+```{r q21}
+ggplot(vol_daily_CGH[year == 2021], aes(factor(month, levels = month.abb),vol_spread,color = factor(month, levels = month.abb))) +geom_boxplot() +labs(x = '', y = 'Standard Deviation of RT LMP - Lagged DA LMP ($/MWh)') +theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust= 1)) +guides(color ='none') +theme_classic() +theme(legend.position = 'top')
+```
+
+## VI. How Weather Interacts with Energy Pricing
+
+22. Let’s turn to the dataset named “data_Chicago,” which combines hourly LMP data from PJM(restricted to “CHICAGO GEN HUB”) with daily weather data recorded at the ChicagoO’Hare weather station. This dataset includes a number of weather-related fields, including
+average temperature, cooling degree days, and heating degree days. Heating degree days and
+cooling degree days respectively describe the number of degrees necessary to raise and lower
+the average temperature on a particular day to reach a fixed temperature (here, 65 degrees
+Fahrenheit). Note that if heating degree days is positive, then cooling degree days is zero—
+and vice versa. The code below plots heating degree days, cooling degree days, and average
+temperature for each day in 2021-2023 for Chicago. What do you notice about the pattern ofheating and cooling degree days throughout a year?
+
+
+```{r q22}
+daily_temp_Chicago <- data_Chicago[,.(date,month, year,avg_temperature_degrees_fahrenheit, avg_cooling_degree_days, avg_heating_degree_days)]%>%unique() %>%pivot_longer(cols = starts_with('avg'),names_to = 'temp_series',values_to = 'degrees')setDT(daily_temp_Chicago)ggplot(daily_temp_Chicago, aes(date, degrees, color = factor(temp_series))) +geom_point(alpha = 0.5) +scale_color_manual(values = c('red','blue','black')) +geom_hline(yintercept = 65, color = 'forestgreen') +labs(x ='', color = '', y = 'Temperature (Degrees Fahrenheit)') +scale_x_date(date_breaks = '3 months') +theme_classic() +theme(legend.position = 'top',axis.text.x = element_text(angle = 45, vjust = 1, hjust= 1))
+```
+
+23. The code below plots the probability density function (PDF) of average daily temperature by
+year, using the “daily_temp_Chicago” dataset constructed above. What do you notice aboutthe shape of temperature distributions? Form a conjecture explaining the shape and test it bycomparing the PDFs by month using by adding the following command at the end of thecode: `facet_wrap(~factor(month, levels = month.abb))`.
+
+```{r q23}
+ggplot(daily_temp_Chicago[temp_series == 'avg_temperature_degrees_fahrenheit'],aes(degrees, color = factor(year))) +geom_density() +labs(color ='', x = 'Average Temperature (Degrees Fahrenheit)',y = 'Probability Density Function') +theme_classic() +theme(legend.position = 'top')
+```
+
+24. The following code produces yearly ECDFs of average daily temperature and average daily
+RT LMP for Chicago. What do you notice about the relationship, in terms of FOSD, betweenECDFs for the LMPs? Does the same relationship hold for temperature? Conjecture as towhy temperature patterns may or may not have translated to LMP patterns. Try the sameexercise, comparing by month.
+
+```{r q24}
+lmp_temp_Chicago <- data_Chicago[,.(mean_lmp_rt = mean(total_lmp_rt),mean_lmp_da = mean(total_lmp_da),vol_spread = sd(spread),temp = mean(avg_temperature_degrees_fahrenheit),humidity = mean(relative_humidity_percent)),by = .(date, month, year)]ggplot(lmp_temp_Chicago, aes(mean_lmp_rt, color = factor(year))) +stat_ecdf() +labs(x = 'Daily Average RT LMP ($/MWh)', y = 'Empirical Cumulative DistributionFunction',color = '') +theme_classic() +theme(legend.position = 'top')ggplot(lmp_temp_Chicago, aes(temp, color = factor(year))) +stat_ecdf() +labs(x = 'Daily Average Temperature (Degrees Fahrenheit)', y = 'Empirical CumulativeDistribution Function',color = '') +theme_classic() +theme(legend.position = 'top')
+```
+
+25. The code below plots the joint density of average daily temperature and the logged standard
+deviation of the daily volatility of the RT-DA LMP spread. Is there an obvious pattern thatemerges? Try identifying notable outliers in the lmp_temp_Chicago dataset. Conjecture as towhy outliers emerged on those days.
+
+```{r q25}
+ggplot(lmp_temp_Chicago, aes(x=temp, y=log(vol_spread)) ) +geom_hdr(xlim = c(-25, 100), ylim = c(0,10)) +geom_point(shape = 21) +labs(fill = '', alpha = 'Probability',x = 'Average Daily Temperature (Degrees Fahrenheit)',y = 'Logged Standard Deviation of (Lagged DA LMP - RT LMP)') +theme_classic() +theme(legend.position = 'top') +facet_grid(~year)
+```
+
+26. The code below renders the plots above using a 3D density plot. Give it a try! What do thepeaks and valleys represent?
+
+```{r q26}
+dens_Chicago <- kde2d(lmp_temp_Chicago[date>'2021-01-01']$temp,log(lmp_temp_Chicago[date>'2021-01-01']$vol_spread))plot_ly(x = dens_Chicago$x, y=dens_Chicago$y, z = dens_Chicago$z) %>%add_surface() %>%layout(scene = list(xaxis = list(title = 'Avg. Temperature'),yaxis = list(title = 'Log.SD (DA LMP - RT LMP)'),zaxis = list(title = 'PDF')))
+```
+
+## VII. Comparing Interconnected Transmission Regions
+
+The states west of PJM belong to the Midcontinent Independent System Operator (MISO).
+Milwaukee and Chicago, two cities merely 90 minutes apart by car, belong to two different ISOs(Milwaukee in MISO and Chicago in PJM). In this section, we explore differences in LMPs and their
+responsiveness to weather patterns, in two separate (yet interconnected) parts of the grid.
+
+27. The code below plots the spread between average daily DA LMPs in Chicago and Oak Creek
+Power Plant (near Milwaukee). Consider the outlier days. Could they be explained byvariations in weather? Plot the same figure for the spread in average daily temperatures totest your hypothesis.
+
+```{r q27}
+lmp_cities <- data.table(date = data_Milwaukee$date,Milwaukee = data_Milwaukee$DA_LMP,Chicago = data_Chicago$total_lmp_da,da_spread = data_Chicago$total_lmp_da - data_Milwaukee$DA_LMP)
+
+ggplot(lmp_cities, aes(x=date,y=da_spread)) +stat_summary(size=0.2) +labs(x='',y='Chicago DA LMP - Milwaukee DA LMP ($/MWh)')+theme_classic()
+```
+
+28. One might expect that weather in Milwaukee and Chicago to be similar. The code below
+generates scatter plots comparing average daily temperatures in Milwaukee and Chicago,
+showing temperatures in the two cities are closely aligned. Try creating a similar plot foraverage daily DA LMPs in the two cities. How closely aligned are the average daily DALMPs in the two cities? Why might LMPs in the two cities differ more than temperatures
+
+```{r q28}
+temperature_cities <- data.table(date = data_Milwaukee$date,Milwaukee = data_Milwaukee$avg_temp_f,Chicago = data_Chicago$avg_temperature_degrees_fahrenheit) %>%unique()ggplot(temperature_cities, aes(x = Milwaukee, y = Chicago)) +geom_point(alpha = 0.2) +geom_abline(intercept = 0, slope = 1,color='red') +labs(x='Milwaukee Average Daily Temperature (Degrees Fahrenheit)',y='Chicago Average Daily Temperature (Degrees Fahrenheit)',color = '') +facet_wrap(~year(date)) +theme_classic()
+```
+
+29. We can examine whether daily temperatures in Chicago and Milwaukee are drawn from a
+normal distribution using a Q-Q plot. Based on the Q-Q plot created from the code below, towhat extent are these temperature series normal? Try creating a similar Q-Q plot comparingAustin and Corpus Christi temperatures to the normal distribution. As an optional step, trycreating a Q-Q plot of Chicago average temperatures against Milwaukee temperatures. Arethese series drawn from the same distribution?
+
+
+```{r q29}
+ggplot(temperature_cities %>% pivot_longer(!date, names_to = 'series', values_to ='temp'),aes(sample = temp, color = series)) +geom_qq() +geom_qq_line() +labs(x='Theoretical Normal Distribution Quantiles',y='Sample Quantiles (Degrees Fahrenheit)',color = '') +theme_classic() +theme(legend.position = 'top')
+```
+
+30. In February 2021, Texas suffered a devastating winter storm that exacerbated the
+vulnerabilities of its power grid. The code below displays average daily temperatures and
+real-time LMPs in Chicago, Milwaukee, and Corpus Christi during this month. Note the scalefor each plot. What do you observe from these plots? Conjecture as to the relationshipbetween prices and weather. Do you think the relationship is linear? Describe the role andnuances of anomalous weather.
+
+## VIII. Contracts for Differences 
+
+31. The code below plots day-over-day changes in the Chicago hourly DA LMP. What does eachpoint on the plot represent? Why are the observations on for most days approximatelysymmetric around zero? Which days exhibited the largest day-over-day changes in DA LMP?How do day-to-day changes in DA LMP relate to contracts for differences (CfDs)?
+
+
+```{r q31}
+ggplot(data_Chicago[order(date)] %>%.[,prev_lmp_da := shift(total_lmp_da, type = 'lag'), by = hour],aes(x = date, y = total_lmp_da - prev_lmp_da)) +geom_point(shape = 21, size = 0.8, alpha = 0.5) +labs(x = '',y = 'DA LMP (t+1) - DA LMP (t)') +theme_classic()
+```
+
+32. Form your own hypotheses about how day-over-day changes in DA LMP may vary accordingto different dimension of the Chicago data (e.g., day-of-week, temperature changes, etc.).Test them. Discuss how patterns in day-over-day changes in DA LMP may relate to energystorage needs.
+
+33. The code below creates a data set containing the ratio of day-over-day DA LMP spreads
+between Chicago and Milwaukee. That is, it computes the day-over-day change in hourly DA
+LMP for Chicago and Milwaukee and then computes their ratio in the spread_ratio field. Use
+this data set to plot spread_ratio and interpret the magnitude of spread_ratio. What do larger
+values mean and how do they relate to incentives for energy transmission and storage given
+your interpretation, what has changed in 2023 relative to 2021 and 2022?
+
+
+```{r q33}
+internodal_spread <- data.table(date = data_Chicago$date,hour = data_Chicago$hour,day_of_week = data_Chicago$day_of_week,month = data_Chicago$month,da_Chicago = data_Chicago$total_lmp_da,da_Milwaukee = data_Milwaukee$DA_LMP,da_CorpusChristi = data_CorpusChristi$DA_LMP) %>%.[order(date)] %>%.[,':=' (prev_da_Chicago = shift(da_Chicago, fill = NA, type = 'lag'),prev_da_Milwaukee = shift(da_Milwaukee, fill = NA, type = 'lag'),prev_da_CorpusChristi = shift(da_CorpusChristi, fill = NA, type = 'lag')),by = hour] %>%.[, ':=' (Chicago_da_spread = da_Chicago - prev_da_Chicago,Milwaukee_da_spread = da_Milwaukee - prev_da_Milwaukee,CorpusChristi_da_spread = da_CorpusChristi - prev_da_CorpusChristi)] %>%.[, spread_ratio := Chicago_da_spread/Milwaukee_da_spread]
+```
+
+34. In the previous question, we explored the ratio of day-over-day DA LMP spreads between
+Milwaukee and Chicago. The code below creates a similar dataset for the ratio of day-overday DA LMP spreads between Chicago and Corpus Christi, TX; the spread_ratio_ercot
+variable holds this data (Corpus Christi belongs to the Electric Reliability Council of Texas,or “ERCOT”). What do larger values mean, and how do they relate to incentives for energy
+transmission and storage?
+
+
+```{r q34}
+internodal_spread$spread_ratio_ercot <- internodal_spread$Chicago_da_spread /internodal_spread$CorpusChristi_da_spread
+```
+
+35. The code below tells you the number of days that spread_ratio and spread_ratio_ercot were
+above 1, respectively, between 2021 and 2023. Interpret these results.
+
+
+```{r q35}
+count1 <- sum(internodal_spread$spread_ratio > 1, na.rm = TRUE)
+count2 <- sum(internodal_spread$spread_ratio_ercot > 1, na.rm = TRUE)print(count1)print(count2)
+count3 <- sum(internodal_spread$spread_ratio > 0, na.rm = TRUE)
+count4 <- sum(internodal_spread$spread_ratio < 0, na.rm = TRUE)print(count3)print(count4)
+```
+
+36. Construct a spread metric that considers the contemporaneous spread between Chicago and
+Milwaukee to those from the preceding day. Interpret this ratio. How does it differ `fromspread_ratio`? Try comparing these two different series using a plot.
+
+## IX. Load and Price Duration Curves
+
+37. Use the code below to load a dataset, created by Bolarinwa Ajanaku,23 containing daily
+observations of PJM data from January 1, 2016 to December 31, 2019.24 This dataset includes
+a number of series, including load, RT LMP, as well as supply and prices for natural gas and
+wind.
+
+```{r q37}
+daily_PJM <- fread('PJM Daily.csv')
+```
+
+38. The code below generates annual load duration curves for PJM, over the years 2016-2019.Based on the plot, which years featured higher demand for electricity? Try adapting the codeto annual price duration curves for PJM, using the rtm_price variable in place ofActual_load_GWh. Which year featured the highest LMP prices? Is this consistent with yourinference based on the load duration curve?
+
+
+```{r q38}
+ldc <- daily_PJM[, .(Date, Actual_load_GWh)] %>%.[, Date := as.Date(Date, format = "%m/%d/%Y")] %>%.[, rank := frank(-Actual_load_GWh) / .N, by = year(Date)]
+
+ggplot(ldc, aes(rank, Actual_load_GWh, color = factor(year(Date)))) +geom_line() +scale_x_continuous(expand = expand_scale(mult=c(0,0.1)), limits = c(0,NA))+scale_y_continuous(expand = expand_scale(mult=c(0,0.1))) +labs(x = 'Percent of Days', y = 'Actual Load (GWh)', color = '',title = 'PJM Annual Load Duration Curves') +theme_classic() +theme(plot.title = element_text(hjust=0.5),legend.position = 'top',plot.caption = element_text(hjust = 0))
+```
+
+39. Try plotting load duration curves for Austin, Milwaukee, and Corpus Christi, using the“load_mw” field. Which cities typically have higher loads?
+
+
+```{r q39}
+```
+
+
+
