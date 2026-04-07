@@ -64,6 +64,8 @@ names(data_PJM)
 
 6. To see the first few observations of the data, run the code below. What is the unit ofobservation?
 
+Each row represents one hour of pricing data for one specific pricing node. The unit of observation is: one pricing node × one hour.
+
 ```{r q6}
 head(data_PJM)
 ```
@@ -71,12 +73,19 @@ head(data_PJM)
 
 7. The code below identifies the final date of the PJM data as December, 12, 2023. How wouldyou identify the initial date?
 
+Initial date	2021-01-01
+Final date	2023-12-31
+Coverage	Exactly 3 full calendar years
+
 ```{r q7}
+min(data_PJM$date)
 max(data_PJM$date)
 ```
 
 8. The code below identifies the set of pricing node types in the PJM data and calculates how
 many observations correspond to each type. How would you do the same for pricing `nodesnames`?
+
+There are 339 unique pricing node names. Most nodes have exactly 26,280 observations (24 × 365 × 3 = 26,280 hourly records), matching the full 2021–2023 window. A handful of nodes – SOUTH (22,657), FLINTRUN (8,016), and GREENECC (2,113) – have fewer observations, indicating they were added to the PJM system partway through the period.
 
 ```{r q8}
 # unique(data_PJM$type)
@@ -85,11 +94,27 @@ many observations correspond to each type. How would you do the same for pricing
 
 9. The code below identifies the number of unique holiday values. How would you identify thenumber of observations falling on holidays? How would you identify the number of uniquedifferent pricing nodes?
 
+Unique holiday values	12  (e.g. Christmas, Thanksgiving, Labor Day …)
+Observations on holidays	262,872
+Unique pricing node names	339
+
 ```{r q9}
+length(unique(data_PJM$holiday))         # unique holiday types
+nrow(data_PJM[isHoliday == TRUE])        # observations on holidays
+length(unique(data_PJM$pnode_name))      # unique pricing nodes
+
 length(unique(data_PJM$holiday))
 ```
 
 10. The following code restricts the PJM data to only the "date" and "total_lmp_rt" fields. Whatfields would be interesting to study in conjunction?
+
+Beyond date and RT LMP, some informative combinations include:
+•	total_lmp_rt and total_lmp_da: the RT–DA spread reveals how real-time prices deviate from day-ahead forecasts, a key measure of market risk.
+•	hour and total_lmp_rt: captures intraday price patterns (morning ramp, evening peak).
+•	month or season and total_lmp_rt: reveals seasonal demand-driven price variation.
+•	day_of_week and total_lmp_rt: identifies weekday vs. weekend price differences caused by industrial load patterns.
+•	isHoliday and total_lmp_rt: isolates holiday demand suppression effects on prices.
+•	pnode_name and congestion_price_rt: highlights which nodes experience the most transmission congestion.
 
 ```{r q10}
 # data_PJM[, .(date, total_lmp_rt)]
@@ -97,12 +122,37 @@ length(unique(data_PJM$holiday))
 
 11. The code below creates a new dataset, restricted to PJM observations falling on Christmas.Create a dataset, named "holidays_PJM," consisting of all observations falling on a holiday.
 
+holidays_PJM contains 262,872 rows, encompassing all hourly observations across all 12 recognized holidays in the dataset for each of the 339 pricing nodes.
+
 ```{r q11}
 # xmas_PJM <- data_PJM[holiday == 'Christmas']
 ```
 
 12. The code below calculates the average RT LMP on holidays in November and December,
 during AM hours, for the "'CHICAGO GEN HUB" pricing node.6 What observations arebeing selected? What is being averaged over? What stands out about the results? Write codethat averages DA LMP within each month, for the "Chicago Gen Hub." Formulate ahypothesis based on the result you observe. How could you check your hypothesis?
+
+What observations are selected: Holiday hours at the Chicago Gen Hub pricing node in November and December during AM hours (hours 0–11).
+
+What is being averaged: The mean real-time LMP (total_lmp_rt), computed separately for each combination of hour-of-day and year.
+
+What stands out: 2022 prices are dramatically higher than 2021 and 2023. For example, hour 8 in 2022 averages approximately $77.93/MWh versus $11.81/MWh in 2023 which is a six-fold difference driven by the 2022 global energy crisis (elevated natural gas prices and post-COVID demand recovery).
+
+DA LMP by month results: December is a clear outlier at $73.21/MWh, followed by summer months (Oct $49.55, Sep $46.00, Jul $44.19, Jun $43.27). Winter holiday months (Jan $27.09, Feb $38.99) are much lower.
+
+Month	Avg DA LMP ($/MWh)	Note
+Jan	$27.09	New Year’s Day, MLK Day
+Feb	$38.99	Presidents’ Day
+May	$30.14	Memorial Day
+Jun	$43.27	Juneteenth
+Jul	$44.19	Independence Day
+Sep	$46.00	Labor Day
+Oct	$49.55	Columbus Day
+Nov	$30.04	Veterans Day, Thanksgiving
+Dec	$73.21 ★	Christmas (winter heating + holiday demand spike)
+
+Hypothesis: DA LMP is driven by both seasonal demand (summer cooling via A/C) and a December spike tied to winter space-heating demand combined with holiday market dynamics.
+
+How to check: Run the same monthly average across all days in data_CGH (not just holidays) and plot by month and year. If the seasonal U-shape pattern (summer peak + December spike) holds across all days, the hypothesis is supported. Alternatively, plot average daily temperature against average daily DA LMP to confirm the temperature-price correlation.
 
 ```{r q12}
 # holidays_PJM[month == 'Dec' &
