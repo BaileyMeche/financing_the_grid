@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(head -2 \"C:/Users/Owner/Box/spring26/GridFinancing/hw1/Homework1&3 Files from TZ-selected/PJM Daily.csv\")",
+      "Bash(ls \"C:/Users/Owner/Box/spring26/GridFinancing/hw1/Homework1&3 Files from TZ-selected/\")",
+      "Bash(head -2 \"C:/Users/Owner/Box/spring26/GridFinancing/hw1/Homework1&3 Files from TZ-selected/PJM Data.csv\")",
+      "Bash(grep -n '\\\\$.*imes\\\\|\\\\$.*ightarrow\\\\|\\\\$.*pm\\\\|\\\\$.*Rightarrow\\\\|\\\\\\\\approx')",
+      "Bash(grep -n '\\\\$.*imes\\\\|\\\\$.*pm\\\\|\\\\$.*ightarrow\\\\|\\\\$.*Rightarrow\\\\|\\\\\\\\approx\\\\|approx')",
+      "Read(//c/Program Files/**)",
+      "Bash(grep -n 'approx\\\\|\\\\$pm\\\\$\\\\|\\\\$Rightarrow\\\\|\\\\$.*imes\\\\|\\\\$.*ightarrow\\\\|M-\\\\^\\\\|M-bM-^@M')"
+    ]
+  }
+}
