@@ -1,8 +1,8 @@
 ---
 title: "Spring 2025 Homework Modeling Exercises Weeks 1 & 3"
-author: "Group 2: group names, University of Chicago"
+author: "Group 2: Bailey Meche, Eliott Raia, University of Chicago"
 geometry: "left=1cm,right=1cm,top=1cm,bottom=1.5cm"
-date: "03-31-2026"
+date: "04-07-2026"
 output: pdf_document
 header-includes:
   - \usepackage{caption}
@@ -88,8 +88,8 @@ many observations correspond to each type. How would you do the same for pricing
 There are 339 unique pricing node names. Most nodes have exactly 26,280 observations (24 × 365 × 3 = 26,280 hourly records), matching the full 2021–2023 window. A handful of nodes – SOUTH (22,657), FLINTRUN (8,016), and GREENECC (2,113) – have fewer observations, indicating they were added to the PJM system partway through the period.
 
 ```{r q8}
-# unique(data_PJM$type)
-# data_PJM[,.N, by = type]
+unique(data_PJM$type)
+data_PJM[,.N, by = type]
 ```
 
 9. The code below identifies the number of unique holiday values. How would you identify thenumber of observations falling on holidays? How would you identify the number of uniquedifferent pricing nodes?
@@ -117,7 +117,7 @@ Beyond date and RT LMP, some informative combinations include:
 •	pnode_name and congestion_price_rt: highlights which nodes experience the most transmission congestion.
 
 ```{r q10}
-# data_PJM[, .(date, total_lmp_rt)]
+data_PJM[, .(date, total_lmp_rt)]
 ```
 
 11. The code below creates a new dataset, restricted to PJM observations falling on Christmas.Create a dataset, named "holidays_PJM," consisting of all observations falling on a holiday.
@@ -125,19 +125,21 @@ Beyond date and RT LMP, some informative combinations include:
 holidays_PJM contains 262,872 rows, encompassing all hourly observations across all 12 recognized holidays in the dataset for each of the 339 pricing nodes.
 
 ```{r q11}
-# xmas_PJM <- data_PJM[holiday == 'Christmas']
+xmas_PJM <- data_PJM[holiday == 'Christmas']
 ```
 
 12. The code below calculates the average RT LMP on holidays in November and December,
 during AM hours, for the "'CHICAGO GEN HUB" pricing node.6 What observations arebeing selected? What is being averaged over? What stands out about the results? Write codethat averages DA LMP within each month, for the "Chicago Gen Hub." Formulate ahypothesis based on the result you observe. How could you check your hypothesis?
 
-What observations are selected: Holiday hours at the Chicago Gen Hub pricing node in November and December during AM hours (hours 0–11).
+What observations are selected: Christmas Day hourly observations at the Chicago Gen Hub node, restricted to AM hours (hours 0–11), across all three years. This is an extremely small sample — at most 12 hours × 3 years = 36 observations.
 
-What is being averaged: The mean real-time LMP (total_lmp_rt), computed separately for each combination of hour-of-day and year.
+What stands out: The year-over-year contrast is extreme and driven almost entirely by December 2022. In 2021, Christmas AM RT LMPs range roughly \$15–28/MWh with a modest morning ramp. In 2022, the same hours range from \$73–450/MWh — hour 0 (midnight) averages \$450/MWh, a figure that reflects the December 2022 bomb cyclone, not a typical Christmas market. In 2023, prices are near or below zero for hours 0–6 (as low as -\$15/MWh at hour 2), consistent with mild weather and wind oversupply on that specific day. The "2022 six-fold difference" framing undersells the anomaly: hour 0 in 2022 is approximately 30× higher than hour 8 in 2023 (\$450 vs. $2.3).
+DA LMP by month: To average DA LMP within each month for Chicago Gen Hub, use data_CGH (all days, not just holidays) using the dataset created in Q13
+```{r q11_2}
+# data_CGH[, .(avg_da_lmp = mean(total_lmp_da, na.rm = TRUE)), by = month][order(avg_da_lmp)]
+```
 
-What stands out: 2022 prices are dramatically higher than 2021 and 2023. For example, hour 8 in 2022 averages approximately $77.93/MWh versus $11.81/MWh in 2023 which is a six-fold difference driven by the 2022 global energy crisis (elevated natural gas prices and post-COVID demand recovery).
-
-DA LMP by month results: December is a clear outlier at $73.21/MWh, followed by summer months (Oct $49.55, Sep $46.00, Jul $44.19, Jun $43.27). Winter holiday months (Jan $27.09, Feb $38.99) are much lower.
+DA LMP by month results: December is a clear outlier at \$73.21/MWh, followed by summer months (Oct \$49.55, Sep \$46.00, Jul $44.19, Jun $43.27). Winter holiday months (Jan \$27.09, Feb $38.99) are much lower.
 
 Month	Avg DA LMP ($/MWh)	Note
 Jan	$27.09	New Year’s Day, MLK Day
@@ -148,18 +150,19 @@ Jul	$44.19	Independence Day
 Sep	$46.00	Labor Day
 Oct	$49.55	Columbus Day
 Nov	$30.04	Veterans Day, Thanksgiving
-Dec	$73.21 ★	Christmas (winter heating + holiday demand spike)
+Dec	$73.21 *	Christmas (winter heating + holiday demand spike)
 
-Hypothesis: DA LMP is driven by both seasonal demand (summer cooling via A/C) and a December spike tied to winter space-heating demand combined with holiday market dynamics.
+Hypothesis: DA LMP exhibits a dual-peak seasonal structure driven by HVAC load: summer cooling demand peaks in June–August and winter heating demand peaks in December–January, with the spring/fall shoulder season (March–May, September–October) at lower levels. The December premium also reflects reduced generation availability and scarcity-pricing dynamics coincident with holiday scheduling.
 
-How to check: Run the same monthly average across all days in data_CGH (not just holidays) and plot by month and year. If the seasonal U-shape pattern (summer peak + December spike) holds across all days, the hypothesis is supported. Alternatively, plot average daily temperature against average daily DA LMP to confirm the temperature-price correlation.
+How to check: Plot avg_da_lmp by month and year using data_CGH (as done in Q15). If the summer and December peaks persist across all three years — not just 2022 — the hypothesis is supported by structural demand factors rather than being an artifact of the energy crisis alone.
+
 
 ```{r q12}
-# holidays_PJM[month == 'Dec' &
-#                pnode_name == 'CHICAGO GEN HUB' &
-#                am_pm == 'AM',
-#   .(average_lmp_rt = mean(total_lmp_rt)), by = .(hour, year)] %>%
-#   .[order(year)]
+xmas_PJM[month == 'Dec' &
+               pnode_name == 'CHICAGO GEN HUB' &
+               am_pm == 'AM',
+  .(average_lmp_rt = mean(total_lmp_rt)), by = .(hour, year)] %>%
+  .[order(year)]
 ```
 
 ## IV. Introduction to Plotting
@@ -171,7 +174,7 @@ data_CGH <- data_PJM[pnode_name == "CHICAGO GEN HUB"]
 nrow(data_CGH)
 ```
 
-The number of observations reflects the total count of **hourly pricing records** for the Chicago Gen Hub node across all years in the dataset. Since PJM data is hourly and the dataset spans ~3 years (2021–2023), we expect roughly 24 hours x 365 days x 3 years ~ 26,280 rows per node. This hourly granularity is the fundamental unit of observation in wholesale electricity markets — the DA and RT auctions both clear on an hourly basis (Week 1, Mordecai: "Day-Ahead (forward) vs Real-Time (Spot) Instrumentation").
+The number of observations reflects the total count of hourly pricing records for the Chicago Gen Hub node across all years in the dataset. Since PJM data is hourly and the dataset spans ~3 years (2021–2023), we expect roughly 24 hours x 365 days x 3 years ~ 26,280 rows per node. This hourly granularity is the fundamental unit of observation in wholesale electricity markets — the DA and RT auctions both clear on an hourly basis.
 
 
 14. The code below generates Figure 1. What stands out? What is each point on the plot averaging over? Interpret the resulting figure when `color = factor(year)` is removed. Try plotting RT LMP by month and by hour instead of day-of-week.
@@ -210,7 +213,9 @@ ggplot(data_CGH, aes(x = factor(hour), y = total_lmp_rt, color = factor(year))) 
   theme(legend.position = 'top')
 ```
 
-Each point represents the **mean RT LMP (+/-SE) across all hourly observations** for that day-of-week, stratified by year. What stands out: (1) weekday LMPs are noticeably higher than weekend LMPs, consistent with higher commercial/industrial load Mon–Fri (Week 1, Mordecai: "load versus temperature conditioned on humidity — weekdays vs. weekends"); (2) 2022 is visibly elevated across all days, reflecting the energy price spike that year. Removing `color = factor(year)` collapses across years into a single average, obscuring the fact that 2022 was a structurally different price regime. By **month**, summer (Jun–Aug) and winter peaks (Jan–Feb) emerge — classic dual-peak demand seasonality driven by cooling and heating loads. By **hour**, prices are highest in the morning ramp (7–9am) and evening peak (5–8pm), lowest in the overnight trough (2–4am), reflecting the diurnal demand cycle described by the duck curve (Week 1, Mordecai: "Cyclic Solar Diurnal-Nocturnal Dead Weight Loss").
+By hour, the overnight trough (hours 2–4 AM) is consistently the lowest-price period across all years, reflecting minimal industrial and commercial load. However, the peak structure differs significantly by year. In 2023, the profile most closely resembles the classic dual-ramp pattern: prices step up around hour 6 as commercial load comes online and again around hour 17–18 as evening demand builds. In 2021, the profile is relatively flat after the overnight trough, with no pronounced evening spike at the annual-average level — individual high-price events average out. In 2022, the most striking feature is a near-monotonic increase from the overnight trough through hour 19–21, where the annual average peaks above $65/MWh. This shape reflects the dominance of summer afternoon gas peaker pricing in 2022: the gas price shock was most severe during peak afternoon demand hours, lifting the conditional mean so sharply that it overwhelms the typical morning-ramp/evening-peak bimodality. The result is that the "morning ramp" and "evening peak" pattern described by the duck curve is only clearly visible in years with more normal supply-cost conditions.
+  
+Removing `color = factor(year)` collapses across years into a single average, obscuring the fact that 2022 was a structurally different price regime. By month, summer (Jun–Aug) and winter peaks (Jan–Feb) emerge — classic dual-peak demand seasonality driven by cooling and heating loads. By hour, prices are highest in the morning ramp (7–9am) and evening peak (5–8pm), lowest in the overnight trough (2–4am), reflecting the diurnal demand cycle described by the duck curve.
 
 15. Write code that plots average monthly day-ahead LMP for "CHICAGO GEN HUB." What happened during the summer of 2022?
 
@@ -230,7 +235,7 @@ ggplot(CGH_monthly_da, aes(x = month, y = avg_da_lmp,
   theme(legend.position = 'top')
 ```
 
-Summer 2022 saw a dramatic spike in DA LMP — roughly 2–3x higher than corresponding months in 2021 or 2023. This reflects the global energy crisis triggered by Russia's invasion of Ukraine, which sharply elevated natural gas prices. Since natural gas turbines (combined-cycle and peakers) are typically the **marginal unit** setting the LMP during peak demand hours, the spark spread widened substantially: higher gas input costs translated directly into higher electricity clearing prices (Week 1, Mordecai: "Merit Order Curve — State-Dependent Supply Side Cost Functions / Generation Stack"). Concurrent extreme heat in the Midwest drove cooling demand to elevated levels, placing additional upward pressure on LMPs.
+Summer 2022 saw a dramatic spike in DA LMP — roughly 2–3x higher than corresponding months in 2021 or 2023. This reflects the global energy crisis triggered by Russia's invasion of Ukraine, which sharply elevated natural gas prices. Since natural gas turbines (combined-cycle and peakers) are typically the marginal unit setting the LMP during peak demand hours, the spark spread widened substantially: higher gas input costs translated directly into higher electricity clearing prices. Concurrent extreme heat in the Midwest drove cooling demand to elevated levels, placing additional upward pressure on LMPs.
 
 16. Oftentimes, pivoting data from "wide" to "long" is helpful for plotting purposes. The following, for example, pivots the "data_CGH" by: [1] creating a "lmp_type" column that stores the names "total_lmp_rt," "total_lmp_da," and "prev_lmp_da" as entries; and [2] creating a corresponding "values" column that stores values of those series. The second block of code plots and compares the "total_lmp_rt" series and "total_lmp_da" series by day-of-the-week, as well as by year. What happens when you replace "day_of_week" with month?
 
@@ -268,7 +273,7 @@ ggplot(data_CGH_long, aes(x = month, y = values,
   facet_wrap(~year)
 ```
 
-Replacing `day_of_week` with `month` reveals that **RT and DA LMPs track each other closely on average**, but the RT-DA spread (basis) is widest during summer months (Jun–Aug) and winter stress periods (Jan–Feb). This is precisely when demand is most uncertain and weather-driven, making the DA forecast least reliable. The DA market clears using a deterministic unit commitment that cannot perfectly anticipate real-time conditions — particularly intermittent renewables or unexpected demand spikes (Week 2, Birge: "mismatch between the day-ahead price and the real-time price due to uncertainty"). Summer 2022 shows the largest divergence, consistent with the gas price shock amplifying RT volatility relative to the forward-looking DA signal.
+Replacing `day_of_week` with `month` reveals that RT and DA LMPs track each other closely on average, but the RT-DA spread (basis) is widest during summer months (Jun–Aug) and winter stress periods (Dec–Feb). This is precisely when demand is most uncertain and weather-driven, making the DA forecast least reliable. The DA market clears using a deterministic unit commitment that cannot perfectly anticipate real-time conditions — particularly intermittent renewables or unexpected demand spikes. Summer 2022 shows the largest divergence (with the exception of December 2022), consistent with the gas price shock amplifying RT volatility relative to the forward-looking DA signal. Notably in December 2022, the bomb cyclone event created an extreme RT-DA divergence that is visible as a separated teal/red pair in the Dec panel — this is the same event identified in Q21 as the most extreme spread-volatility day.
 
 17. The following code calculates average RT and DA LMPs for each day in the CGH dataset and then plots the empirical cumulative distribution (ECDF) of average RT LMPs by year. Note that the series corresponding to 2022 is below that for 2021 and 2023, indicating that for each possible value $x$, there were more days in 2021 and 2023 for which the average daily RT LMP was less than $x$; in other words, RT LMP was higher in 2022 than in 2021 or 2023. This relationship between probability distributions is known as first-order stochastic dominance (FOSD). Adjust the code below such that it also calculates the daily volatility of RT LMP, using the `sd()` function, and identify another example of FOSD.
 
@@ -281,14 +286,16 @@ CGH_summary_daily <- data_CGH[, .(mean_rt_lmp = mean(total_lmp_rt),
 # ECDF of mean daily RT LMP by year
 ggplot(CGH_summary_daily, aes(mean_rt_lmp, color = factor(year))) +
   stat_ecdf() +
+  coord_cartesian(xlim = c(0, 250)) + 
   labs(color = '', x = 'Average RT LMP ($/MWh)',
        y = 'Empirical Cumulative Distribution Function') +
   theme_classic() +
   theme(legend.position = 'top')
 
-# ECDF of daily RT LMP *volatility* by year — another FOSD example
+# ECDF of daily RT LMP volatility by year 
 ggplot(CGH_summary_daily, aes(sd_rt_lmp, color = factor(year))) +
   stat_ecdf() +
+  coord_cartesian(xlim = c(0, 250)) + 
   labs(color = '', x = 'Daily SD of RT LMP ($/MWh)',
        y = 'Empirical Cumulative Distribution Function',
        title = 'ECDF of Daily RT LMP Volatility') +
@@ -296,7 +303,7 @@ ggplot(CGH_summary_daily, aes(sd_rt_lmp, color = factor(year))) +
   theme(legend.position = 'top')
 ```
 
-Adding `sd_rt_lmp` captures intra-day RT price volatility, which is conceptually the *spread risk* that a storage or CfD holder faces within each day. The second ECDF plot provides another example of FOSD: **2022 first-order stochastically dominates 2021 and 2023 in volatility** — for every threshold level of intra-day price volatility, a larger fraction of 2021 and 2023 days fell below that level. This confirms that 2022 was not only a high-price year but a high-*volatility* year — consistent with the Week 1 lecture's insight that "higher volatility => lower debt capacity" and that spread volatility is a key driver of credit risk in grid financing (Week 1, Mordecai: "Credit Capacity: Debt Service Cover vs Cash Flow Volatility").
+Adding `sd_rt_lmp` captures intra-day RT price volatility, which is conceptually the spread risk that a storage or CfD holder faces within each day. The second ECDF plot provides another example of FOSD: 2021 and 2023 jointly first-order stochastically dominate 2022 in terms of daily RT LMP volatility — the 2022 ECDF lies uniformly to the right, confirming that 2022 had higher intra-day spread risk at every quantile. For every threshold level of intra-day price volatility, a larger fraction of 2021 and 2023 days fell below that level. This confirms that 2022 was not only a high-price year but a high-volatility year.
 
 ## V. Pricing Anomalies and Patterns
 
@@ -329,6 +336,7 @@ vol_compare <- rbind(
 
 ggplot(vol_compare, aes(x = vol_spread, color = factor(year))) +
   geom_density() +
+  coord_cartesian(xlim = c(0, 300)) + 
   labs(x = 'Standard Deviation of RT LMP - DA LMP ($/MWh)',
        y = 'Probability Density Function', color = '') +
   scale_x_continuous(expand = c(0, 0)) +
@@ -338,7 +346,8 @@ ggplot(vol_compare, aes(x = vol_spread, color = factor(year))) +
   facet_wrap(~node)
 ```
 
-**2022 had the most variable spread volatility in August** — the density curve is flatter and has a heavier right tail, indicating more days with extreme RT-DA divergences. This reflects the gas price shock amplifying real-time balancing costs beyond what the DA market anticipated. The Eastern Hub comparison is instructive: Eastern Hub typically shows a narrower spread volatility distribution than Chicago Gen Hub because it is closer to large coastal load centers with diverse generation supply. Chicago sits at a transmission-constrained node connecting Midwest wind resources to load — making it more susceptible to congestion-driven RT spikes (Week 2, Birge: "price differences may be >$100/MW-hr over a distance of <100 miles" due to transmission constraints). The RT-DA spread functions as a **Contract-for-Difference (CfD) proxy**: its volatility is a direct measure of the basis risk that generators and load-serving entities face (Week 1, Mordecai: "DA (forward) vs RT (spot) Instrumentation: Contracts-for-Difference(s) as Proxies").
+The node comparison reveals a qualitative difference in market structure. At Chicago Gen Hub, spread volatility distributions are clearly year-differentiated: 2022 (green) is the flattest and most right-skewed, with substantial probability mass extending past \$40/MWh and a visible secondary hump near \$50–60/MWh — the signature of the gas price shock amplifying intraday RT-DA divergences. In 2023 (blue) and 2021 (red), distributions are tighter but still visibly distinct, with 2023 being the most concentrated (peaking near $7/MWh).
+At Eastern Hub, by contrast, the three year-curves are nearly superimposed: all peak sharply near \$2–4/MWh and have negligible mass above \$15/MWh. The year-to-year variation that dominated Chicago Gen Hub is essentially absent. This reflects two structural differences: first, Eastern Hub is an aggregated hub node on the PJM eastern seaboard with access to a highly diverse generation portfolio (gas, nuclear, coal, imports from NYISO/MISO), reducing congestion-driven RT spikes; second, because it is not located at a Midwest wind-interconnect chokepoint, the wind-intermittency contribution to spread volatility that amplifies Chicago's basis risk is absent. The practical implication is that RT-DA spread risk — and therefore the CfD basis risk faced by generators and load-serving entities — is structurally higher and more year-sensitive at Chicago Gen Hub than at Eastern Hub, making weather derivatives and transmission rights more valuable for Chicago-exposed positions.
 
 19. Plot hourly RT LMP by day for the month of April 2023 (for Chicago Gen Hub). Notice that RT LMP was often negative. What would negative prices mean? Try identifying other months or occasions for which RT LMP was negative and form a conjecture for why these negative prices occurred.
 
@@ -368,7 +377,10 @@ ggplot(neg_prices, aes(x = month, y = pct_negative, fill = factor(year))) +
   theme(legend.position = 'top')
 ```
 
-**Negative prices mean generators are effectively paying the grid to accept their electricity.** This happens when supply exceeds demand and dispatchable units (e.g., nuclear, wind) are cheaper to keep running than to shut down — operators will accept negative prices up to their shutdown cost threshold. The key drivers (Week 1, Mordecai: "Electricity: Limited Storability -> Spikes, volatility, negative prices"): (1) **Wind/solar oversupply** during mild-demand periods — April is a prime month because heating demand has ended but cooling hasn't started, yet wind output is high in the Midwest; (2) **Must-run baseload** (nuclear cannot be rapidly shut down, so it bids at or below zero to ensure dispatch); (3) **Transmission congestion** — surplus renewable generation cannot be exported, forcing local prices negative. The pattern of negative prices clustering in spring (Apr–May) and overnight hours is consistent with low-demand + high-wind conditions (Week 2, Birge: "effects of intermittent renewables on the load duration curve").
+Negative prices mean generators are effectively paying the grid to accept their electricity. This happens when supply exceeds demand and dispatchable units are cheaper to keep running than to shut down — operators will accept negative prices up to their shutdown cost threshold. The key drivers: 
+  (1) Wind/solar oversupply during mild-demand periods
+  (2) Must-run baseload 
+  (3) Transmission congestion
 
 20. Which hour of the day do you think RT LMP is highest and lowest? How would the answer depend on the season? Test your conjectures.
 
@@ -395,7 +407,9 @@ ggplot(hourly_lmp, aes(x = hour, y = mean_rt_lmp, color = season)) +
   facet_wrap(~year)
 ```
 
-Across all seasons, **RT LMP is typically lowest in the overnight trough (hours 2–5 AM)** when industrial and commercial loads are minimal, and **highest during the morning ramp (7–9 AM) and evening peak (5–8 PM)** when demand surges. The season modulates both the magnitude and timing: in **summer**, the evening peak is most extreme (AC loads persist after the solar contribution drops — the classic "duck curve" ramp described in Week 1, Mordecai); in **winter**, the morning ramp is more pronounced (heating demand and lighting); in **spring/fall**, intra-day variation is smaller and negative-price hours are more frequent overnight. This dual-peak structure is the fundamental basis for time-spread options (storage valuation): buy electricity at the overnight trough, sell at the morning or evening peak (Week 1, Mordecai: "valuation of... time spread options (storage)").
+Across all seasons, RT LMP is typically lowest in the overnight trough (hours 2–5 AM) when industrial and commercial loads are minimal, and highest during the morning ramp (7–9 AM) and evening peak (5–8 PM) when demand surges. The season modulates both the magnitude and timing: in summer, the evening peak is most extreme; in winter, the morning ramp is more pronounced; in spring/fall, intra-day variation is smaller and negative-price hours are more frequent overnight. 
+
+In 2022, the winter profile is an extreme outlier — average winter RT LMP approaches or exceeds $150/MWh at peak hours, driven by the December 2022 bomb cyclone (also identified in Q21). This illustrates that the hour-of-day pattern is inseparable from tail-risk events: winter mornings carry the most severe scarcity-pricing risk.
 
 21. The code below plots boxplots of daily RT-DA LMP spread volatility for each month of 2021 for Chicago Gen Hub, such that individual points are outliers relative to the month, using the `vol_daily_CGH` dataset constructed in question 18. Plot the same figure for 2022 and 2023. What day in 2021-2023 had the most extreme RT-DA LMP spread volatility?
 
@@ -424,7 +438,13 @@ most_extreme <- vol_daily_CGH[which.max(vol_spread)]
 print(most_extreme)
 ```
 
-The most extreme day in the dataset is almost certainly in **February 2021**, corresponding to Winter Storm Uri — a catastrophic polar vortex event that simultaneously spiked demand for heating and caused widespread generator outages across PJM's interconnected footprint (though the epicenter was ERCOT/Texas, the cold snap affected Midwest markets too). This matches Week 1's framing of weather volatility as the primary driver of price spikes and credit stress (Week 1, Mordecai: "Financing Credit Capacity More Weather Dependent — Electricity: Limited Storability -> Spikes, volatility, negative prices"). Across the three years: 2022 shows the highest *sustained* spread volatility (wider boxes in Jun–Aug reflecting gas-price-driven RT uncertainty), while 2021 has the single largest outlier. 2023 is the most benign, with tighter spread distributions across most months.
+The three boxplots tell a clear story of regime difference. In 2021, spread volatility was modest throughout the year — the most extreme single-day reading was approximately \$100/MWh in April (likely a spring wind event), with most months having IQRs below \$15/MWh. In 2023, the distribution is similarly well-behaved, with a summer peak of around \$65/MWh in July.
+2022 is categorically different. The December 2022 panel contains two extreme outliers near $750 and \$800+/MWh that push the y-axis to a scale 8× larger than either neighboring year. Every other month's box collapses to the baseline relative to these values, illustrating that the December 2022 event was not merely an elevated year — it was a single catastrophic tail event. The precise maximum is confirmed computationally:
+```{r q21_2}
+most_extreme <- vol_daily_CGH[which.max(vol_spread)]
+# day=23, month=Dec, year=2022, vol_spread=883.79
+```
+December 23, 2022 — vol_spread = $883.79/MWh — is the most extreme day in the three-year dataset by a factor of roughly 9× the next most extreme non-December-2022 observation. This was the peak of the "Elliott" bomb cyclone, a historic winter storm that simultaneously collapsed wind generation, spiked natural gas demand for heating, and caused widespread generator outages across PJM — conditions under which the RT market cleared at scarcity prices while DA commitments (made before the storm's severity was apparent) were priced at a fraction of realized real-time costs.
 
 ## VI. How Weather Interacts with Energy Pricing
 
@@ -452,7 +472,7 @@ ggplot(daily_temp_Chicago, aes(date, degrees, color = factor(temp_series))) +
         axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 ```
 
-HDD and CDD are **mutually exclusive by construction** — when temperature exceeds 65°F, only CDD is positive; when temperature falls below 65°F, only HDD is positive. The pattern is a clear **seasonal alternation**: HDD dominates from November through March (Chicago winters drive large heating loads), CDD dominates from June through September (hot humid summers drive AC demand), and both are near zero in the transition months of April–May and October–November. This mirrors the dual-peak demand structure visible in the LMP data and is the econometric basis for weather derivative pricing — HDD/CDD are the standard reference indices for heating and cooling degree day contracts (Week 1, Mordecai: "measuring temperature extremes in terms of cooling degree days (CDDs), heating degree days (HDDs) and precipitation days"). The 65°F threshold (green line) is the industry-standard "base temperature" for residential HVAC thermostat behavior.
+HDD and CDD are mutually exclusive by construction. When temperature exceeds 65°F, only CDD is positive; when temperature falls below 65°F, only HDD is positive. The pattern is a clear seasonal alternation: HDD dominates from November through March (Chicago winters drive large heating loads), CDD dominates from June through September (hot humid summers drive AC demand), and both are near zero in the transition months of April–May and October–November. This mirrors the dual-peak demand structure visible in the LMP data and is the econometric basis for weather derivative pricing — HDD/CDD are the standard reference indices for heating and cooling degree day contracts. The 65°F threshold (green line) is the industry-standard "base temperature" for residential HVAC thermostat behavior.
 
 23. The code below plots the probability density function (PDF) of average daily temperature by year, using the "daily_temp_Chicago" dataset constructed above. What do you notice about the shape of temperature distributions? Form a conjecture explaining the shape and test it by comparing the PDFs by month using by adding the following command at the end of the code: `facet_wrap(~factor(month, levels = month.abb))`.
 
@@ -477,7 +497,7 @@ ggplot(daily_temp_Chicago[temp_series == 'avg_temperature_degrees_fahrenheit'],
   facet_wrap(~factor(month, levels = month.abb))
 ```
 
-The annual temperature distribution for Chicago is **bimodal** — with one mode near 25–35°F (winter cluster) and another near 70–80°F (summer cluster), separated by a trough around 50–55°F. This is not consistent with normality. The conjecture is that temperatures in continental climates like Chicago spend *more time* at seasonal extremes (winter cold, summer heat) than at the spring/fall midpoints, because synoptic weather patterns are "sticky" — cold air masses and heat domes persist for weeks. The by-month facet confirms this: each individual month's temperature PDF is approximately unimodal and roughly normal, but aggregating across months creates the bimodal annual shape. This is important for LMP modeling because the **nonlinear relationship between temperature and load** (mirrored in HDD/CDD) means that the tails of the temperature distribution drive disproportionate price spikes (Week 1, Mordecai: "weather and grid load activity — load versus temperature conditioned on humidity"; Week 1: "Threshold Price Inelasticities: Volatile Conditions with Discontinuities and Disparities").
+The annual temperature distribution for Chicago is bimodal — with one mode near 25–35°F (winter cluster) and another near 70–80°F (summer cluster), separated by a trough around 50–55°F. This is not consistent with normality. The conjecture is that temperatures in continental climates like Chicago spend *more time* at seasonal extremes (winter cold, summer heat) than at the spring/fall midpoints, because synoptic weather patterns are "sticky" — cold air masses and heat domes persist for weeks. The by-month facet confirms this: each individual month's temperature PDF is approximately unimodal and roughly normal, but aggregating across months creates the bimodal annual shape. This is important for LMP modeling because the **nonlinear relationship between temperature and load** (mirrored in HDD/CDD) means that the tails of the temperature distribution drive disproportionate price spikes.
 
 24. The following code produces yearly ECDFs of average daily temperature and average daily RT LMP for Chicago. What do you notice about the relationship, in terms of FOSD, between ECDFs for the LMPs? Does the same relationship hold for temperature? Conjecture as to why temperature patterns may or may not have translated to LMP patterns. Try the same exercise, comparing by month.
 
@@ -519,8 +539,11 @@ ggplot(lmp_temp_Chicago, aes(mean_lmp_rt, color = factor(year))) +
 
 **For LMPs**: the 2022 ECDF lies clearly to the right of both 2021 and 2023 — 2021 and 2023 jointly first-order stochastically dominate 2022. This confirms that 2022 RT LMPs were uniformly higher (at virtually every quantile) than the adjacent years. **For temperature**: the ECDFs for 2021, 2022, and 2023 are tightly clustered and largely overlapping — no strong FOSD relationship holds. Year-to-year temperature variation in Chicago is small relative to the seasonal range (~60–65°F swing), so annual ECDFs look nearly identical.
 
-The disconnect between temperature FOSD and LMP FOSD is fundamental: the mapping from temperature to LMP is **highly nonlinear**. Temperature drives demand through the merit order — at moderate temperatures demand is served by baseload (cheap) units, but as temperature extremes push demand onto peaking gas turbines, marginal cost jumps sharply. The 2022 LMP premium was primarily driven by the **gas price shock** (fuel input cost rather than a temperature anomaly), illustrating that LMPs reflect both weather-driven demand *and* supply-side cost dynamics simultaneously. The by-month comparison reveals that the 2022 premium was most pronounced in the summer months, consistent with gas peakers setting the LMP during heat-driven peak demand — a direct application of the merit order / spark spread concept (Week 1, Mordecai: "Spark spread dynamics -> Contracts-for-Differences (CfDs) -> Real Options Analysis"; Week 2, Birge: "On average, DA prices are actually higher than expected RT prices... consistent with market power of generators withholding supply in the DA market").
+The disconnect between temperature FOSD and LMP FOSD is fundamental: the mapping from temperature to LMP is **highly nonlinear**. Temperature drives demand through the merit order — at moderate temperatures demand is served by baseload (cheap) units, but as temperature extremes push demand onto peaking gas turbines, marginal cost jumps sharply. The 2022 LMP premium was primarily driven by the **gas price shock** (fuel input cost rather than a temperature anomaly), illustrating that LMPs reflect both weather-driven demand *and* supply-side cost dynamics simultaneously. The by-month comparison reveals that the 2022 premium was most pronounced in the summer months, consistent with gas peakers setting the LMP during heat-driven peak demand — a direct application of the merit order / spark spread concept.
 
+The by-month ECDFs also reveal a second 2022 premium cluster in November–December, driven by the bomb cyclone scarcity event rather than the sustained gas cost shock — illustrating that LMP FOSD across years reflects the superposition of multiple structurally distinct shocks.
+
+<!--
 25. The code below plots the joint density of average daily temperature and the logged standard
 deviation of the daily volatility of the RT-DA LMP spread. Is there an obvious pattern thatemerges? Try identifying notable outliers in the lmp_temp_Chicago dataset. Conjecture as towhy outliers emerged on those days.
 
@@ -671,4 +694,4 @@ daily_PJM <- fread(paste0(wd, "/", "PJM Daily.csv"))
 ```
 
 
-
+-->
