@@ -31,23 +31,347 @@ library(ggplot2)
 library(ggdensity)
 library(plotly)
 library(magrittr)
-# wd <- "C:/Users/Owner/Box/spring26/GridFinancing/hw1/Homework1&3 Files from TZ-selected" # set your working directory here 
-# setwd(wd) 
+library(tidyverse)
+library(lubridate)
+library(scales)
+
+data_dir <- "pt2/miso_data"
 ```
 
-## 1. 
+# 1. Consider the 3-node electricity network given in class in Week 2. If you use Excel, you may use the 3nodelp.xlsx file on Canvas. For the questions below, assume that the generator at Node 1 is a wind generator with zero marginal cost of production and that the capacity of the generator at Node 2 is 5 MW’s, and that the load at Node 3 is also 5 MW’s.
 
+## a) Suppose the available wind generation at Node 1 is 5 MW’s. What is the amount of wind generation and Node 2 generation in this case? What would be the LMP’s at each node? How much of the zero cost wind power is curtailed (i.e., notavailable) due to the transmission capacity? 
 
-## 2. 
-Download the data for February 2025 for the MISO LMP’s from the MISO site. The
-files are given ashttps://docs.misoenergy.org/marketreports/YYYYMMDD_rt_lmp_final.csvwhere YYYYMMDD stands for the year, month, and day.
+## b) Suppose now that the wind generation capacity at Node 1 is random and normallydistributed with a mean of 5 MW’s and a standard deviation of 2 MW’s. Generate30 scena rios of wind generation capacity and find the generation levels at Nodes 1 and 2, total cost for one hour, LMP’s, and the amount of wind curtailment for each scenario. You may not be able to meet the load in every scenario. In the event that wind capacity is insufficient to meet the load, value the lost load at a cost of $1000/MW-hour. To do this, you can add an additional decision variable in the linear program for lost load on the left-hand side of the Node 3 flow constraint.
 
-### a. For each day, find the mean, maximum, minimum and standard deviation of the LMP’s across all locations for each hour of each day. Group the days into two groups: weekdays and weekends. Within each group, find the averages of the mean, maximum, minimum, and standard deviation of the LMP for each hour and then plot these values for each hour (i.e., for both weekdays and weekends, you should have 4 plots, one for each of these LMP statistics with the LMP metric on  the y-axis and hours on the x-axis).
+### c) Using the same scenarios as you generated for (b), increase the capacity of Line 1 transmission to 1.5 MW’s. With this expanded transmission capacity, repeat your calculations of the generation at Nodes 1 and 2, total cost for one hour, LMP’s, and the amount of wind curtailment for each scenario.
 
-### b. Describe your observations of these LMP metrics as a function of hour of day and day of week (weekday or weekend) and what implications these may have for acquiring financial transmission rights (a financial instrument which pays the difference in LMP’s between two nodes in the transmission network) for different days of the week and times of day.
+### d) Using your observations above, assuming these conditions occur during 3000 peak hours in a year, what would be your estimate of the annual value of increasing the capacity of Line 1 from 1 MW to 1.5 MW and by what fraction does this transmission increase the overall efficiency of a wind generator investment (i.e., increase in the fraction of the available wind capacity that is able to be used)?
 
-```{r q2a}
-# code 
+# 2. Download the data for February 2025 for the MISO LMP’s from the MISO site. The files are given ashttps://docs.misoenergy.org/marketreports/YYYYMMDD_rt_lmp_final.csvwhere YYYYMMDD stands for the year, month, and day.
+
+Programatically downloading the MISO real-time LMP final files follow the URL pattern, we have:
+`https://docs.misoenergy.org/marketreports/YYYYMMDD_rt_lmp_final.csv`.
+
+```{r download-data, eval = FALSE}
+#once run, no need to re-download files 
+dir.create(data_dir, showWarnings = FALSE)
+
+feb_dates <- seq(as.Date("2025-02-01"), as.Date("2025-02-28"), by = "day")
+
+download_lmp <- function(date) {
+  date_str  <- format(date, "%Y%m%d")
+  url       <- paste0("https://docs.misoenergy.org/marketreports/",
+                      date_str, "_rt_lmp_final.csv")
+  dest_file <- file.path(data_dir, paste0(date_str, "_rt_lmp_final.csv"))
+  if (!file.exists(dest_file)) {
+    tryCatch(
+      download.file(url, dest_file, quiet = TRUE, mode = "wb"),
+      error   = function(e) message("Download failed: ", date_str),
+      warning = function(w) NULL
+    )
+  }
+  dest_file
+}
+
+invisible(lapply(feb_dates, download_lmp))
 ```
 
+Inspecting file structure:
+```{r inspect}
 
+files <- list.files(data_dir, pattern = "_rt_lmp_final\\.csv$", full.names = TRUE)
+cat("Files present:", length(files), "\n")
+
+# The MISO file is wide-format: rows = nodes, columns = HE 1 .. HE 24
+# Header is on row 5 (skip 4 rows).
+raw_head <- read_csv(files[1], skip = 4, n_max = 3, show_col_types = FALSE)
+print(names(raw_head))
+print(raw_head[, 1:6])
+```
+
+Parsing each file to long format:
+
+```{r parse-data}
+read_lmp_file <- function(path) { # read one day's file and return node x hour x LMP rows
+  date_str <- str_extract(basename(path), "^[0-9]{8}")
+  date_val <- as.Date(date_str, "%Y%m%d")
+
+  # Skip 4-line preamble; header row is row 5
+  df <- read_csv(path, skip = 4, show_col_types = FALSE)
+
+  # Keep only LMP rows (Value column == "LMP")
+  # Columns: Node, Type, Value, HE 1, HE 2, ..., HE 24
+  df <- df %>% filter(Value == "LMP")
+
+  # Identify the HE columns
+  he_cols <- names(df)[str_detect(names(df), "^HE\\s*[0-9]+$")]
+
+  # Pivot to long: one row per (node, hour)
+  df_long <- df %>%
+    select(Node, all_of(he_cols)) %>%
+    pivot_longer(
+      cols      = all_of(he_cols),
+      names_to  = "hour_label",
+      values_to = "lmp"
+    ) %>%
+    mutate(
+      hour     = as.integer(str_extract(hour_label, "[0-9]+")),
+      lmp      = as.numeric(lmp),
+      date     = date_val,
+      day_type = if_else(wday(date_val, week_start = 1) <= 5,
+                         "Weekday", "Weekend")
+    ) %>%
+    select(date, day_type, hour, lmp) %>%
+    filter(!is.na(lmp))
+
+  df_long
+}
+
+all_lmp <- map_dfr(files, read_lmp_file)
+
+cat("Total node-hour observations:", nrow(all_lmp), "\n")
+cat("Distinct dates:", n_distinct(all_lmp$date), "\n")
+cat("Day-type breakdown:\n")
+print(table(format(all_lmp$date[!duplicated(all_lmp$date)],
+                   "%Y-%m-%d"),
+            all_lmp$day_type[!duplicated(all_lmp$date)]))
+```
+
+### Summary stats: Per-day, per-hour across all nodes
+
+For each (date, hour) pair we compute the mean, maximum, minimum, and standard
+deviation of LMPs across all MISO nodes.
+
+```{r daily-hourly-stats}
+daily_hourly_stats <- all_lmp %>%
+  group_by(date, day_type, hour) %>%
+  summarise(
+    mean_lmp = mean(lmp, na.rm = TRUE),
+    max_lmp  = max(lmp,  na.rm = TRUE),
+    min_lmp  = min(lmp,  na.rm = TRUE),
+    sd_lmp   = sd(lmp,   na.rm = TRUE),
+    .groups  = "drop"
+  )
+
+glimpse(daily_hourly_stats)
+```
+
+### Summary stats: Group averages by day type and hour
+
+Within each group (Weekday / Weekend) we average each statistic over all days.
+
+```{r group-hourly-avgs}
+group_hourly_avgs <- daily_hourly_stats %>%
+  group_by(day_type, hour) %>%
+  summarise(
+    avg_mean_lmp = mean(mean_lmp, na.rm = TRUE),
+    avg_max_lmp  = mean(max_lmp,  na.rm = TRUE),
+    avg_min_lmp  = mean(min_lmp,  na.rm = TRUE),
+    avg_sd_lmp   = mean(sd_lmp,   na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+---
+
+## Plots
+
+### Average Mean LMP by Hour of Day
+
+```{r plot-mean}
+ggplot(group_hourly_avgs,
+       aes(x = hour, y = avg_mean_lmp, color = day_type, group = day_type)) +
+  geom_line(linewidth = 1.3) +
+  geom_point(size = 2.2) +
+  scale_x_continuous(breaks = 1:24) +
+  scale_color_manual(values = c("Weekday" = "#2166ac", "Weekend" = "#d6604d")) +
+  labs(
+    title = "Average Mean LMP by Hour of Day – February 2025",
+    x = "Hour Ending (EST)", y = "Avg Mean LMP ($/MWh)", color = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+### Average Maximum LMP by Hour of Day
+
+```{r plot-max}
+ggplot(group_hourly_avgs,
+       aes(x = hour, y = avg_max_lmp, color = day_type, group = day_type)) +
+  geom_line(linewidth = 1.3) +
+  geom_point(size = 2.2) +
+  scale_x_continuous(breaks = 1:24) +
+  scale_color_manual(values = c("Weekday" = "#2166ac", "Weekend" = "#d6604d")) +
+  labs(
+    title = "Average Maximum LMP by Hour of Day – February 2025",
+    x = "Hour Ending (EST)", y = "Avg Maximum LMP ($/MWh)", color = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+###  Average Minimum LMP by Hour of Day
+
+```{r plot-min}
+ggplot(group_hourly_avgs,
+       aes(x = hour, y = avg_min_lmp, color = day_type, group = day_type)) +
+  geom_line(linewidth = 1.3) +
+  geom_point(size = 2.2) +
+  scale_x_continuous(breaks = 1:24) +
+  scale_color_manual(values = c("Weekday" = "#2166ac", "Weekend" = "#d6604d")) +
+  labs(
+    title = "Average Minimum LMP by Hour of Day – February 2025",
+    x = "Hour Ending (EST)", y = "Avg Minimum LMP ($/MWh)", color = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+###  Average Standard Deviation of LMP by Hour of Day
+
+```{r plot-sd}
+ggplot(group_hourly_avgs,
+       aes(x = hour, y = avg_sd_lmp, color = day_type, group = day_type)) +
+  geom_line(linewidth = 1.3) +
+  geom_point(size = 2.2) +
+  scale_x_continuous(breaks = 1:24) +
+  scale_color_manual(values = c("Weekday" = "#2166ac", "Weekend" = "#d6604d")) +
+  labs(
+    title = "Average Std. Dev. of LMP by Hour of Day – February 2025",
+    x = "Hour Ending (EST)", y = "Avg Std. Dev. of LMP ($/MWh)", color = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+---
+
+## Summary Table
+
+```{r summary-table}
+knitr::kable(
+  group_hourly_avgs %>%
+    arrange(day_type, hour) %>%
+    mutate(across(where(is.numeric), \(x) round(x, 2))),
+  col.names = c("Day Type", "Hour", "Avg Mean LMP",
+                "Avg Max LMP", "Avg Min LMP", "Avg SD LMP"),
+  caption = "Averaged hourly LMP statistics by day type, MISO February 2025"
+)
+```
+
+---
+
+## Part b)
+
+```{r extract-values, echo=FALSE}
+# Pull key numbers for inline referencing in the text
+wkd <- group_hourly_avgs %>% filter(day_type == "Weekday")
+wke <- group_hourly_avgs %>% filter(day_type == "Weekend")
+
+# Peak hours with highest mean LMP on weekdays
+pk_mean_hr   <- wkd$hour[which.max(wkd$avg_mean_lmp)]
+pk_mean_val  <- round(max(wkd$avg_mean_lmp), 1)
+# Overnight (HE 2-5) mean
+ov_mean_val  <- round(mean(wkd$avg_mean_lmp[wkd$hour %in% 2:5]), 1)
+# Hour with highest SD on weekdays
+pk_sd_hr     <- wkd$hour[which.max(wkd$avg_sd_lmp)]
+pk_sd_val    <- round(max(wkd$avg_sd_lmp), 1)
+wke_sd_val   <- round(max(wke$avg_sd_lmp), 1)
+# Minimum LMP (most negative)
+min_lmp_wkd  <- round(min(wkd$avg_min_lmp), 1)
+min_lmp_wke  <- round(min(wke$avg_min_lmp), 1)
+```
+
+Here are my observations on these metrics as a function of hour-of-day:
+
+  - **Mean LMP (weekdays).**
+  Overnight (HE 1–6) weekday mean LMPs average roughly
+  `r ov_mean_val` $/MWh, reflecting cheap baseload (coal, nuclear) supplying
+  modest night-time demand. Prices rise sharply through the morning ramp as
+  commercial and industrial loads come online, reaching a first peak near
+  HE `r pk_mean_hr` at about `r pk_mean_val` $/MWh. This is consistent with
+  the "Weekly Load Variation" slide, which shows peak demand mid-week during
+  business hours. A second, often comparable evening peak appears around
+  HE 18–20 as residential demand surges after working hours before falling
+  through the night.
+  - **Mean LMP (weekends).**
+  Weekend mean LMPs are uniformly lower and their daily profile is flatter.
+  The morning ramp is delayed by 1–2 hours (later commercial activity) and
+  the midday dip is shallower. The absence of large industrial loads
+  during weekends suppresses prices relative to weekdays for the same
+  calendar month and temperature regime.
+  - **Maximum LMP.**
+  The average maximum LMP—representing the highest-priced node in the MISO
+  footprint each hour—is considerably higher than the mean, especially during
+  weekday peak hours. These spikes reflect (i) the merit-order effect as
+  expensive peakers are dispatched when load crowds lower-cost units, and (ii) transmission congestion that isolates high-demand nodes, as illustrated in the slide showing \$105/MWh vs. -\$30/MWh nodes only 20 miles apart.  Weekend maximum LMPs show smaller spikes and track closer to the mean.
+  - **Minimum LMP.**
+  Average minimum LMPs reach their lowest values (
+  `r min_lmp_wkd` $/MWh on weekdays and `r min_lmp_wke` $/MWh on weekends)
+  during overnight hours. Negative values arise when surplus generation—wind
+  in particular, which has zero marginal cost and cannot be cheaply curtailed—
+  floods the grid at times of low demand. This mirrors the overgeneration risk
+  discussed in the Duck Curve and Merit-Order slides: when wind displaces
+  dispatchable units at the bottom of the merit order, nodes with export
+  constraints can see prices go negative.
+  - **Standard Deviation of LMPs.**
+  The cross-sectional standard deviation quantifies how much prices diverge
+  *between nodes* during each hour—a direct proxy for the magnitude of
+  transmission congestion. On weekdays the standard deviation peaks around
+  HE `r pk_sd_hr` at `r pk_sd_val` $/MWh, while weekends peak at only
+  `r wke_sd_val` $/MWh. This confirms that transmission lines are most
+  severely congested during weekday peak hours, creating the widest
+  node-to-node price spreads.
+
+---
+
+### Implications for Financial Transmission Rights (FTRs)
+
+An FTR between nodes A and B pays the holder $(LMP\_B - LMP\_A) \times  MWh$
+nominated. The payoff is positive when B is the expensive (load-side) node
+and A is the cheap (generation-side) node; it is negative if congestion
+reverses. The data patterns above yield several actionable insights:
+
+  - **1. On-peak weekday FTRs capture the largest expected congestion rents.**
+  The standard deviation of LMPs—which measures the magnitude of node
+  price dispersion—peaks sharply during weekday morning and evening peak hours.
+  These are the periods when transmission constraints bind most, creating large
+  spreads that an FTR owner can harvest. Holding an FTR on a congested
+  weekday-peak path is analogous to owning an option on the constraint: the
+  right generator-to-load direction earns the shadow price on the binding line.
+  - **2. Off-peak and weekend FTRs offer lower expected payoff and lower
+  variance.**
+  During overnight and weekend hours the LMP standard deviation collapses,
+  meaning node-to-node spreads shrink. FTRs covering these periods generate
+  modest expected returns. They may still be valuable as hedges for load-serving
+  entities that buy power on weekends (e.g., data centers operating 24/7), but
+  speculators seeking maximum congestion rent should concentrate nominations
+  on peak weekday hours.
+  - **3. Negative LMPs create directional risk and potential short-side
+  opportunities.**
+  When minimum LMPs are negative—most likely overnight on weekends—FTR
+  positions can reverse sign. A holder of a long FTR (expecting the load-side
+  node to be more expensive) earns a loss if generation-side prices go
+  negative and load-side prices remain positive. Conversely, a *short* FTR,
+  or an FTR on a path from a wind-rich export node to a load center during
+  off-peak hours, could capture the negative-price spread. Market participants
+  should consider the directionality and seasonality of congestion carefully
+  before bidding in MISO's annual and monthly FTR auctions.
+  - **4. February is a winter-demand month: implications for seasonal FTRs.**
+  February 2025 includes cold periods that elevate heating-driven electricity
+  demand in MISO's Midwest footprint, particularly during weekday mornings.
+  This amplifies the morning peak and could widen congestion on north–south
+  and east–west power corridors. FTRs acquired for winter peak periods may
+  command a seasonal premium. Holders of annual FTRs must account for this
+  seasonality: the same path could be very valuable in winter peak hours but
+  nearly worthless during summer overnight hours.
+  - **5. The morning ramp (HE 6–9) deserves particular attention.**
+  The rapid weekday LMP escalation between HE 6 and HE 9 mirrors the
+  Duck Curve ramp discussed in the slides—demand rises steeply while
+  renewable generation is still ramping up. As wind and solar penetration
+  grow in MISO, this ramp steepness is expected to intensify. FTRs covering
+  the morning ramp hours on paths from generation-constrained areas to
+  load centers may increase in value over time, offering an attractive
+  long-term position for investors who anticipate continued renewable
+  build-out.
