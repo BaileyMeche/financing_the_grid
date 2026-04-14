@@ -42,11 +42,111 @@ data_dir <- "pt2/miso_data"
 
 ## a) Suppose the available wind generation at Node 1 is 5 MW’s. What is the amount of wind generation and Node 2 generation in this case? What would be the LMP’s at each node? How much of the zero cost wind power is curtailed (i.e., notavailable) due to the transmission capacity? 
 
+With 5 MW of available wind at Node 1 and a 1 MW Line 1 capacity, the optimal dispatch is 4 MW of wind generation and 1 MW of gas generation. The power flows are 1 MW on Line 1, 3 MW on Line 2, and 2 MW on Line 3. One MW of wind is curtailed because Line 1 is congested and the network can't route the full 5 MW of wind to meet demand.
+The LMPs are $0 at Node 1, $40 at Node 2, and $20 at Node 3. Node 1 is $0 because there is curtailed wind available at no cost. Node 2 is $40 because it is can't take advantage of the cheap wind becasue of the congested Line 1, making gas the only marginal resource. Node 3 is $20 because the node network network will require any additional MW delivered there to come equally from wind ($0) and gas ($40), giving an average of $20.
+
 ## b) Suppose now that the wind generation capacity at Node 1 is random and normallydistributed with a mean of 5 MW’s and a standard deviation of 2 MW’s. Generate30 scena rios of wind generation capacity and find the generation levels at Nodes 1 and 2, total cost for one hour, LMP’s, and the amount of wind curtailment for each scenario. You may not be able to meet the load in every scenario. In the event that wind capacity is insufficient to meet the load, value the lost load at a cost of $1000/MW-hour. To do this, you can add an additional decision variable in the linear program for lost load on the left-hand side of the Node 3 flow constraint.
+
+Below is the dataset of the randomly generated scenarios we used:
+
+Scenario	"Wind Avail
+(MW)"	"G1 Wind
+(MW)"	"G2 Gas
+(MW)"	"Lost Load
+(MW)"	"Curtailment
+(MW)"	"Cost
+($/hr)"	"LMP Node 1
+($/MW-hr)"	"LMP Node 2
+($/MW-hr)"	"LMP Node 3
+($/MW-hr)"
+1	5.9934	4	1	0	1.9934	40	0	40	20
+2	4.7235	4	1	0	0.7235	40	0	40	20
+3	6.2954	4	1	0	2.2954	40	0	40	20
+4	8.0461	4	1	0	4.0461	40	0	40	20
+5	4.5317	4	1	0	0.5317	40	0	40	20
+6	4.5317	4	1	0	0.5317	40	0	40	20
+7	8.1584	4	1	0	4.1584	40	0	40	20
+8	6.5349	4	1	0	2.5349	40	0	40	20
+9	4.0611	4	1	0	0.0611	40	0	40	20
+10	6.0851	4	1	0	2.0851	40	0	40	20
+11	4.0732	4	1	0	0.0732	40	0	40	20
+12	4.0685	4	1	0	0.0685	40	0	40	20
+13	5.4839	4	1	0	1.4839	40	0	40	20
+14	1.1734	1.1734	3.8266	0	0	153.06	40	40	40
+15	1.5502	1.5502	3.4498	0	0	137.99	40	40	40
+16	3.8754	3.8754	1.1246	0	0	44.98	40	40	40
+17	2.9743	2.9743	2.0257	0	0	81.03	40	40	40
+18	5.6285	4	1	0	1.6285	40	0	40	20
+19	3.184	3.184	1.816	0	0	72.64	40	40	40
+20	2.1754	2.1754	2.8246	0	0	112.98	40	40	40
+21	7.9313	4	1	0	3.9313	40	0	40	20
+22	4.5484	4	1	0	0.5484	40	0	40	20
+23	5.1351	4	1	0	1.1351	40	0	40	20
+24	2.1505	2.1505	2.8495	0	0	113.98	40	40	40
+25	3.9112	3.9112	1.0888	0	0	43.55	40	40	40
+26	5.2218	4	1	0	1.2218	40	0	40	20
+27	2.698	2.698	2.302	0	0	92.08	40	40	40
+28	5.7514	4	1	0	1.7514	40	0	40	20
+29	3.7987	3.7987	1.2013	0	0	48.05	40	40	40
+30	4.4166	4	1	0	0.4166	40	0	40	20
+									
+Average	4.624	3.583	1.417	0	1.041	56.678	13.333	40	26.667
+
+Using our 30 randomly generated wind scenarios from a normal distribution with mean 5 MW and standard deviation 2 MW, the results show two distinct patterns. When wind exceeds approximately 4 MW, Line 1 becomes congested, curtailment occurs, and hourly costs are low (~$40), but not as low as they could be if the congestion didnt exist, because most demand is met by free wind. When wind falls below ~4 MW, Line 1 is no longer congested, all available wind is used with no curtailment, but higher gas output is required and costs rise significantly. No lost load occurs in any of our scenarios because the gas plant's 5 MW capacity is sufficient to meet Node 3's 5 MW demand on its own--this would be different, however, if the node's demand increased. Average hourly cost across all of our scenarios is approximately $56.68.
 
 ### c) Using the same scenarios as you generated for (b), increase the capacity of Line 1 transmission to 1.5 MW’s. With this expanded transmission capacity, repeat your calculations of the generation at Nodes 1 and 2, total cost for one hour, LMP’s, and the amount of wind curtailment for each scenario.
 
+Updated data:
+
+Scenario	"Wind Avail
+(MW)"	"G1 Wind
+(MW)"	"G2 Gas
+(MW)"	"Lost Load
+(MW)"	"Curtailment
+(MW)"	"Cost
+($/hr)"	"LMP Node 1
+($/MW-hr)"	"LMP Node 2
+($/MW-hr)"	"LMP Node 3
+($/MW-hr)"
+1	5.9934	4.75	0.25	0	1.2434	10	0	40	20
+2	4.7235	4.7235	0.2765	0	0	11.06	40	40	40
+3	6.2954	4.75	0.25	0	1.5454	10	0	40	20
+4	8.0461	4.75	0.25	0	3.2961	10	0	40	20
+5	4.5317	4.5317	0.4683	0	0	18.73	40	40	40
+6	4.5317	4.5317	0.4683	0	0	18.73	40	40	40
+7	8.1584	4.75	0.25	0	3.4084	10	0	40	20
+8	6.5349	4.75	0.25	0	1.7849	10	0	40	20
+9	4.0611	4.0611	0.9389	0	0	37.56	40	40	40
+10	6.0851	4.75	0.25	0	1.3351	10	0	40	20
+11	4.0732	4.0732	0.9268	0	0	37.07	40	40	40
+12	4.0685	4.0685	0.9315	0	0	37.26	40	40	40
+13	5.4839	4.75	0.25	0	0.7339	10	0	40	20
+14	1.1734	1.1734	3.8266	0	0	153.06	40	40	40
+15	1.5502	1.5502	3.4498	0	0	137.99	40	40	40
+16	3.8754	3.8754	1.1246	0	0	44.98	40	40	40
+17	2.9743	2.9743	2.0257	0	0	81.03	40	40	40
+18	5.6285	4.75	0.25	0	0.8785	10	0	40	20
+19	3.184	3.184	1.816	0	0	72.64	40	40	40
+20	2.1754	2.1754	2.8246	0	0	112.98	40	40	40
+21	7.9313	4.75	0.25	0	3.1813	10	0	40	20
+22	4.5484	4.5484	0.4516	0	0	18.06	40	40	40
+23	5.1351	4.75	0.25	0	0.3851	10	0	40	20
+24	2.1505	2.1505	2.8495	0	0	113.98	40	40	40
+25	3.9112	3.9112	1.0888	0	0	43.55	40	40	40
+26	5.2218	4.75	0.25	0	0.4718	10	0	40	20
+27	2.698	2.698	2.302	0	0	92.08	40	40	40
+28	5.7514	4.75	0.25	0	1.0014	10	0	40	20
+29	3.7987	3.7987	1.2013	0	0	48.05	40	40	40
+30	4.4166	4.4166	0.5834	0	0	23.34	40	40	40
+									
+Average	4.624	3.982	1.018	0	0.642	40.739	24	40	32
+
+Increasing Line 1 capacity from 1 MW to 1.5 MW shifts the congestion threshold upward to around 4.75 MW of wind. This allows more wind to be utilized before curtailment begins. Becasue curtailment is reduced across our scenarios, average hourly cost falls to approximately $40.74, down from $56.68 in part (b).
+
 ### d) Using your observations above, assuming these conditions occur during 3000 peak hours in a year, what would be your estimate of the annual value of increasing the capacity of Line 1 from 1 MW to 1.5 MW and by what fraction does this transmission increase the overall efficiency of a wind generator investment (i.e., increase in the fraction of the available wind capacity that is able to be used)?
+
+For our scenarios, the average hourly cost saving from the transmission upgrade is approximately $15.94 per hour. Over 3,000 peak hours per year, this yields an estimated annual value of about $47,800.
+Wind utilization efficiency increases from about 77.5% in part (b) to around 86.1% in part (c), an improvement of 8.6 percentage points. As a fraction of the base efficiency, this represents an around an 11% increase in how effectively available wind capacity is converted into useful generation.
 
 # 2. Download the data for February 2025 for the MISO LMP’s from the MISO site. The files are given ashttps://docs.misoenergy.org/marketreports/YYYYMMDD_rt_lmp_final.csvwhere YYYYMMDD stands for the year, month, and day.
 
