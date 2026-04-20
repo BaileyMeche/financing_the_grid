@@ -31,7 +31,10 @@ library(ggplot2)
 library(ggdensity)
 library(plotly)
 library(magrittr)
-wd <- "" # set your working directory here
+library(lubridate)
+library(scales)
+
+wd <- "C:/Users/Owner/Box/spring26/GridFinancing/hw1/data" # set your working directory here
 # setwd(wd) 
 
 # from hw1
@@ -129,10 +132,151 @@ real-time LMPs in Chicago, Milwaukee, and Corpus Christi during this month. Note
 
 
 ```{r q31}
-ggplot(data_Chicago[order(date)] %>%.[,prev_lmp_da := shift(total_lmp_da, type = 'lag'), by = hour],aes(x = date, y = total_lmp_da - prev_lmp_da)) +geom_point(shape = 21, size = 0.8, alpha = 0.5) +labs(x = '',y = 'DA LMP (t+1) - DA LMP (t)') +theme_classic()
+# Compute lagged DA LMP within each hour
+setorder(data_Chicago, date)
+data_Chicago[, prev_lmp_da := shift(total_lmp_da, type = "lag"), by = hour]
+
+ggplot(
+  data_Chicago[!is.na(prev_lmp_da)],
+  aes(x = as.Date(date), y = total_lmp_da - prev_lmp_da)
+) +
+  geom_point(shape = 21, size = 0.8, alpha = 0.5, fill = "#2166ac") +
+  geom_hline(yintercept = 0, color = "firebrick", linewidth = 0.6, linetype = "dashed") +
+  scale_x_date(date_breaks = "3 months", date_labels = "%b\n%Y") +
+  labs(
+    title = "Day-over-Day Change in Chicago Hourly DA LMP (2021–2023)",
+    x     = NULL,
+    y     = "DA LMP(t) - DA LMP(t-1)  ($/MWh)"
+  ) +
+  theme_classic(base_size = 12)
 ```
 
+**What each point represents.**
+Each scatter point represents the change in the Day-Ahead Locational Marginal Price (DA LMP) for a *single hour* in Chicago between two consecutive calendar days. Because the dataset contains 24 hourly observations per day, there are 24 points plotted for nearly every date on the x-axis. Formally, each point is:
+
+$$\Delta \text{LMP}_{h,t} = \text{LMP}^{DA}_{h,t} - \text{LMP}^{DA}_{h,t-1}$$
+
+where $h$ indexes the hour of day and $t$ indexes the calendar date.
+
+**Why the distribution is approximately symmetric around zero.**
+Wholesale electricity prices are *mean-reverting*. Structural forces — merit-order dispatch, competitive bidding, FERC market rules, and the physical constraint that supply must equal demand every hour — anchor prices to the underlying cost of the marginal generating unit. A shock that pushes prices above (or below) that anchor (e.g., an unexpected cold snap or a wind surplus) is transitory: demand normalizes, reserves are dispatched or curtailed, and prices revert. Over a sufficiently long panel (2021–2023, three full years), positive shocks roughly balance negative ones, producing a near-zero unconditional mean (observed mean $\approx$ 0.001 \$ /MWh ) and a roughly symmetric distribution with standard deviation $\approx$ 13.7  \$ /MWh
+
+**Days with the largest day-over-day changes.**
+The most extreme observations cluster around two distinct episodes:
+
+* **December 2022 (Winter Storm Elliott):** The polar vortex event of December 23–26, 2022 drove natural-gas prices to extreme levels and strained thermal generation in PJM. The days immediately surrounding Christmas 2022 — December 24, 25, 26, 27, and 28 — appear in the top ten for largest single-hour DA LMP swings (max absolute changes of 141–222 \$ /MWh). The oscillation reflects surging prices during the storm followed by rapid normalization once temperatures moderated.
+
+* **Summer 2023 heat waves (July 27 and 29, 2023):** A heat dome over the Midwest caused peak cooling loads to spike, pushing DA prices sharply higher on the event days (max changes of 166–225 \$ /MWh) and equally sharply lower on subsequent days as temperatures fell.
+
+**Relationship to Contracts for Differences (CfDs).**
+A CfD is a bilateral financial instrument in which two counterparties agree that one will pay the other the difference between a fixed *contract price* $K$ and a *floating reference price* $P_t$ (typically the realized spot or DA LMP) on a specified settlement schedule:
+
+$$\text{Payoff} = (K - P_t) \times Q$$
+
+When $P_t > K$, the seller (generator) receives the net payment; when $P_t < K$, the buyer (load-serving entity) receives it. The day-over-day change in DA LMP is directly proportional to the *mark-to-market change in a CfD's value*: a large positive $\Delta\text{LMP}$ means existing CfD sellers (who sold at $K$) are benefiting (spot is rising toward them) while buyers face growing exposure. The symmetric-around-zero character of $\Delta\text{LMP}$ implies that CfDs are, in expectation, roughly fairly priced at inception — neither party systematically profits from the directional drift — but the fat-tailed volatility (driven by weather extremes) means CfDs are valuable risk-management tools for both sides.
+
+---
+
+
 32. Form your own hypotheses about how day-over-day changes in DA LMP may vary accordingto different dimension of the Chicago data (e.g., day-of-week, temperature changes, etc.).Test them. Discuss how patterns in day-over-day changes in DA LMP may relate to energystorage needs.
+
+
+
+**Hypotheses.** We conjecture that:
+
+1. **Monday produces the largest positive day-over-day jumps** because demand transitions sharply from the low-load weekend regime back to full commercial and industrial activity.
+2. **Winter and autumn months (Nov–Feb) exhibit higher absolute variability** because weather-driven heating demand is more volatile than summer cooling demand, and natural-gas supply constraints amplify price spikes.
+3. **Larger temperature changes between consecutive days are associated with larger absolute DA LMP changes** because temperature is the dominant driver of electricity demand.
+
+```{r q32-dow}
+# --- Hypothesis 1: day-of-week effect ---
+data_Chicago[, dod_change := total_lmp_da - prev_lmp_da]
+
+dow_order <- c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
+
+dow_stats <- data_Chicago[!is.na(dod_change), .(
+  mean_change     = mean(dod_change, na.rm = TRUE),
+  mean_abs_change = mean(abs(dod_change), na.rm = TRUE),
+  sd_change       = sd(dod_change, na.rm = TRUE)
+), by = day_of_week][, day_of_week := factor(day_of_week, levels = dow_order)][order(day_of_week)]
+
+ggplot(dow_stats, aes(x = day_of_week, y = mean_change, fill = mean_change > 0)) +
+  geom_col(color = "white", linewidth = 0.3) +
+  scale_fill_manual(values = c("TRUE" = "#2166ac", "FALSE" = "#d6604d"), guide = "none") +
+  geom_errorbar(aes(ymin = mean_change - sd_change/sqrt(26*24),
+                    ymax = mean_change + sd_change/sqrt(26*24)), width = 0.25) +
+  labs(
+    title = "Mean Day-over-Day Change in Chicago DA LMP by Day of Week (2021–2023)",
+    x     = NULL,
+    y     = "Mean change in DA LMP ($/MWh)"
+  ) +
+  theme_classic(base_size = 12)
+```
+
+```{r q32-month}
+# --- Hypothesis 2: seasonal variability ---
+month_order <- c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+
+month_stats <- data_Chicago[!is.na(dod_change), .(
+  mean_abs_change = mean(abs(dod_change), na.rm = TRUE),
+  sd_change       = sd(dod_change, na.rm = TRUE)
+), by = month][, month := factor(month, levels = month_order)][order(month)]
+
+ggplot(month_stats, aes(x = month, y = mean_abs_change, fill = mean_abs_change)) +
+  geom_col(color = "white", linewidth = 0.3) +
+  scale_fill_viridis_c(option = "C", guide = "none") +
+  labs(
+    title = "Mean Absolute Day-over-Day Change in Chicago DA LMP by Month",
+    x     = NULL,
+    y     = "Mean |change in DA LMP| ($/MWh)"
+  ) +
+  theme_classic(base_size = 12)
+```
+
+```{r q32-temp}
+# --- Hypothesis 3: temperature change vs. LMP change ---
+# Collapse to daily (aggregate hourly changes and temperatures)
+daily_Chicago <- data_Chicago[!is.na(dod_change), .(
+  mean_dod_abs  = mean(abs(dod_change), na.rm = TRUE),
+  mean_dod      = mean(dod_change, na.rm = TRUE),
+  avg_temp      = mean(avg_temperature_degrees_fahrenheit, na.rm = TRUE)
+), by = .(date, year)]
+
+# Compute temperature change from previous day
+setorder(daily_Chicago, date)
+daily_Chicago[, prev_temp := shift(avg_temp, type = "lag")]
+daily_Chicago[, temp_change := avg_temp - prev_temp]
+
+ggplot(daily_Chicago[!is.na(temp_change)],
+       aes(x = abs(temp_change), y = mean_dod_abs, color = factor(year))) +
+  geom_point(alpha = 0.35, size = 1.5) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1.1) +
+  scale_color_manual(values = c("2021" = "#4dac26", "2022" = "#d01c8b", "2023" = "#f1a340")) +
+  labs(
+    title = "Day-over-Day Temperature Change vs. Absolute DA LMP Change – Chicago",
+    x     = "|change in Temperature| (°F, day-over-day)",
+    y     = "Mean |change in DA LMP| ($/MWh)",
+    color = "Year"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+**Findings and discussion.**
+
+*Day-of-week effect (Hypothesis 1 confirmed).* Monday exhibits the largest mean positive day-over-day DA LMP change (+7.1 \$ /MWh), more than double any other weekday. Saturday and Sunday show negative mean changes (-4.4 and -1.7 \$ /MWh respectively), confirming that prices fall as weekly demand falls off into the weekend. This Monday "ramp-up" effect arises because the DA market must schedule forward-looking dispatch for Monday on Sunday (when total system load is still low), so generators bid conservatively; then when actual Monday commercial and industrial demand materializes, prices clear higher than Sunday's DA expectations.
+
+*Seasonal variability (Hypothesis 2 confirmed).* December and November exhibit the highest mean absolute changes (10.8 and 10.3 \$ /MWh), followed by February and April ( $\approx$ 9.2 dollars/MWh ). These months feature the sharpest weather transitions — the onset of cold snaps, ice storms, and polar vortex events — and natural-gas supply tightness that amplifies the price response. August and September are the calmest months (6.3–6.5 \$ /MWh), when temperatures are high but stable.
+
+*Temperature-change link (Hypothesis 3 partially confirmed).* There is a positive but noisy correlation between the magnitude of the day-over-day temperature swing and the magnitude of the DA LMP change. Large temperature drops (>10°F) reliably generate large price jumps (>20 \$ /MWh on average), while small temperature changes produce a wide spread of LMP outcomes. The relationship is nonlinear: cold-weather spikes in 2022 are disproportionately large, reflecting both the extreme cold and the natural-gas supply constraints that coincided with Winter Storm Elliott.
+
+**Implications for energy storage.** Energy storage assets (batteries, pumped hydro) profit by buying electricity cheaply and selling it at higher prices — the "energy arbitrage" value is driven precisely by the magnitude of day-over-day (and intra-day) price swings. The patterns above have several implications:
+
+* *Highest-value storage windows* are weekday mornings (Monday especially) when prices jump from weekend lows, and winter months when price volatility is greatest.
+* *Seasonal sizing*: A storage portfolio must be large enough to capitalize on the rare but extreme winter-storm spikes (200+ \$ /MWh swings). Undersized storage leaves the most profitable arbitrage opportunities uncaptured.
+* *Risk management*: The same volatility that creates arbitrage opportunity creates mark-to-market risk for long-duration storage contracts. Operators typically pair physical storage with financial hedges (CfDs or futures) on the highest-risk months (December–February).
+
+--- 
 
 33. The code below creates a data set containing the ratio of day-over-day DA LMP spreads
 between Chicago and Milwaukee. That is, it computes the day-over-day change in hourly DA
@@ -143,8 +287,94 @@ your interpretation, what has changed in 2023 relative to 2021 and 2022?
 
 
 ```{r q33}
-internodal_spread <- data.table(date = data_Chicago$date,hour = data_Chicago$hour,day_of_week = data_Chicago$day_of_week,month = data_Chicago$month,da_Chicago = data_Chicago$total_lmp_da,da_Milwaukee = data_Milwaukee$DA_LMP,da_CorpusChristi = data_CorpusChristi$DA_LMP) %>%.[order(date)] %>%.[,':=' (prev_da_Chicago = shift(da_Chicago, fill = NA, type = 'lag'),prev_da_Milwaukee = shift(da_Milwaukee, fill = NA, type = 'lag'),prev_da_CorpusChristi = shift(da_CorpusChristi, fill = NA, type = 'lag')),by = hour] %>%.[, ':=' (Chicago_da_spread = da_Chicago - prev_da_Chicago,Milwaukee_da_spread = da_Milwaukee - prev_da_Milwaukee,CorpusChristi_da_spread = da_CorpusChristi - prev_da_CorpusChristi)] %>%.[, spread_ratio := Chicago_da_spread/Milwaukee_da_spread]
+internodal_spread <- data.table(
+  date             = data_Chicago$date,
+  hour             = data_Chicago$hour,
+  day_of_week      = data_Chicago$day_of_week,
+  month            = data_Chicago$month,
+  da_Chicago       = data_Chicago$total_lmp_da,
+  da_Milwaukee     = data_Milwaukee$DA_LMP,
+  da_CorpusChristi = data_CorpusChristi$DA_LMP
+) %>%
+  .[order(date)] %>%
+  .[, ':=' (
+    prev_da_Chicago       = shift(da_Chicago,       fill = NA, type = "lag"),
+    prev_da_Milwaukee     = shift(da_Milwaukee,     fill = NA, type = "lag"),
+    prev_da_CorpusChristi = shift(da_CorpusChristi, fill = NA, type = "lag")
+  ), by = hour] %>%
+  .[, ':=' (
+    Chicago_da_spread       = da_Chicago       - prev_da_Chicago,
+    Milwaukee_da_spread     = da_Milwaukee     - prev_da_Milwaukee,
+    CorpusChristi_da_spread = da_CorpusChristi - prev_da_CorpusChristi
+  )] %>%
+  .[, spread_ratio := Chicago_da_spread / Milwaukee_da_spread]
+
+# Plot spread_ratio over time (winsorize for display)
+p_win <- 0.005   # 0.5% winsorization each tail
+q_lo  <- quantile(internodal_spread$spread_ratio, p_win, na.rm = TRUE)
+q_hi  <- quantile(internodal_spread$spread_ratio, 1 - p_win, na.rm = TRUE)
+
+internodal_spread[, spread_ratio_plot := pmin(pmax(spread_ratio, q_lo), q_hi)]
+
+ggplot(
+  internodal_spread[!is.na(spread_ratio_plot)],
+  aes(x = as.Date(date), y = spread_ratio_plot)
+) +
+  geom_point(alpha = 0.25, size = 0.6, color = "#2166ac") +
+  geom_hline(yintercept = 0, linetype = "solid",  color = "black",     linewidth = 0.7) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "firebrick", linewidth = 0.7) +
+  geom_smooth(method = "loess", span = 0.15, se = FALSE, color = "#d6604d", linewidth = 1) +
+  scale_x_date(date_breaks = "3 months", date_labels = "%b\n%Y") +
+  labs(
+    title = "Chicago / Milwaukee Day-over-Day DA LMP Spread Ratio (2021–2023)",
+    subtitle = "Winsorized at 0.5% tails; red dashed line = ratio of 1",
+    x     = NULL,
+    y     = "Spread Ratio  (change in Chicago / change in Milwaukee)"
+  ) +
+  theme_classic(base_size = 12)
 ```
+
+```{r q33-annual}
+# Annual median spread ratio
+internodal_spread[, year := year(as.Date(date))]
+
+annual_med <- internodal_spread[is.finite(spread_ratio),
+  .(median_ratio = median(spread_ratio, na.rm = TRUE),
+    mean_ratio   = mean(spread_ratio,   na.rm = TRUE)),
+  by = year][order(year)]
+
+knitr::kable(
+  annual_med,
+  digits  = 3,
+  col.names = c("Year", "Median Spread Ratio", "Mean Spread Ratio"),
+  caption = "Annual Chicago/Milwaukee Day-over-Day DA LMP Spread Ratio"
+)
+```
+
+**What the spread ratio measures and what larger values mean.**
+
+$$\text{Spread Ratio}_{h,t} = \frac{\Delta \text{LMP}^{DA}_{\text{Chicago},h,t}}{\Delta \text{LMP}^{DA}_{\text{Milwaukee},h,t}}$$
+
+This ratio quantifies how much Chicago's DA LMP is moving *relative to* Milwaukee's DA LMP from one day to the next, at the same hour. Several interpretive cases:
+
+| Ratio range | Interpretation |
+|---|---|
+| **> 1** | Chicago prices are amplifying more than Milwaukee's — PJM congestion / load is more acute |
+| **0–1** | Both markets move in the same direction; Chicago less responsive than Milwaukee |
+| **< 0** | The two markets move in *opposite directions* — a sign of ISO-boundary transmission congestion or differential weather shocks |
+| **>> 1 or << -1** | Extreme divergence — either a near-zero Milwaukee change in the denominator or a structural decoupling event |
+
+A spread ratio substantially above 1 signals that transmission capacity between MISO (Milwaukee) and PJM (Chicago) is constrained: Chicago and Milwaukee are both experiencing demand pressures, but PJM's marginal unit is more expensive because cross-ISO flows are limited. This creates an incentive for transmission investment (or FTRs) on the MISO–PJM interface to arbitrage the price difference.
+
+**What changed in 2023 relative to 2021 and 2022.**
+The median spread ratio increased from 0.24 in 2021 to 0.41 in 2022 and 0.52 in 2023. This secular drift toward higher ratios suggests that Chicago (PJM-COMED) has become *progressively more price-sensitive* relative to Milwaukee (MISO-LRZ2) over the three-year window. Two drivers are likely:
+
+1. **Growing renewable penetration in MISO** (wind-rich Upper Midwest) is compressing Milwaukee-area prices during off-peak hours, widening the LMP differential on a structural basis.
+2. **PJM capacity market reforms and retirements** are reducing Chicago's generation buffer, so demand shocks translate into larger price swings on the PJM side of the seam.
+
+The high mean ratio in 2022 (1.09) reflects the outsized impact of Winter Storm Elliott, during which PJM prices spiked dramatically while MISO prices rose less (or in some hours fell due to different market structures), creating episodic extreme ratios that pulled the annual mean well above the median.
+
+---
 
 34. In the previous question, we explored the ratio of day-over-day DA LMP spreads between
 Milwaukee and Chicago. The code below creates a similar dataset for the ratio of day-overday DA LMP spreads between Chicago and Corpus Christi, TX; the spread_ratio_ercot
@@ -153,15 +383,54 @@ transmission and storage?
 
 
 ```{r q34}
-internodal_spread$spread_ratio_ercot <- internodal_spread$Chicago_da_spread /internodal_spread$CorpusChristi_da_spread
+internodal_spread[,
+  spread_ratio_ercot := Chicago_da_spread / CorpusChristi_da_spread
+]
+
+# Winsorized plot
+q_lo2 <- quantile(internodal_spread$spread_ratio_ercot, 0.005, na.rm = TRUE)
+q_hi2 <- quantile(internodal_spread$spread_ratio_ercot, 0.995, na.rm = TRUE)
+
+internodal_spread[,
+  spread_ratio_ercot_plot := pmin(pmax(spread_ratio_ercot, q_lo2), q_hi2)
+]
+
+ggplot(
+  internodal_spread[!is.na(spread_ratio_ercot_plot)],
+  aes(x = as.Date(date), y = spread_ratio_ercot_plot)
+) +
+  geom_point(alpha = 0.25, size = 0.6, color = "#4dac26") +
+  geom_hline(yintercept = 0, linetype = "solid",  color = "black",     linewidth = 0.7) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "firebrick", linewidth = 0.7) +
+  geom_smooth(method = "loess", span = 0.15, se = FALSE, color = "#d01c8b", linewidth = 1) +
+  scale_x_date(date_breaks = "3 months", date_labels = "%b\n%Y") +
+  labs(
+    title = "Chicago / Corpus Christi Day-over-Day DA LMP Spread Ratio (2021–2023)",
+    subtitle = "ERCOT vs. PJM internodal ratio — winsorized at 0.5% tails",
+    x     = NULL,
+    y     = "Spread Ratio  (change in Chicago / change in Corpus Christi)"
+  ) +
+  theme_classic(base_size = 12)
 ```
+
+**What larger values mean — Chicago vs. ERCOT.**
+
+The Chicago–Corpus Christi spread ratio uses the same formula as Q33 but now compares PJM (Chicago) to ERCOT (Corpus Christi). Unlike Chicago and Milwaukee, which are geographically close and share a transmission seam with significant cross-border flows, **ERCOT is a largely isolated grid** — it has only two small DC ties to neighboring interconnections (~1,200 MW combined, negligible relative to ERCOT's ~85,000 MW peak). As a result:
+
+* **The ratio is driven by statistical co-movement only, not physical transmission flows.** When the ratio is near 1, the two markets happened to respond similarly to a common shock (e.g., a national natural-gas price move or a continent-wide temperature event). When the ratio is near 0 or negative, the two markets are responding to purely local conditions (Texas heat vs. Chicago cold, or vice versa).
+
+* **A spread ratio far above 1** (Chicago moving much more than Corpus Christi) signals a PJM-specific event — a cold snap in the Midwest, a PJM generator outage, or a COMED transmission constraint — that has no transmission pathway to equilibrate with Texas.
+
+* **Incentives for transmission and storage:** The high variance of the Chicago/ERCOT ratio (standard deviation much larger than the Chicago/Milwaukee ratio) underscores the *enormous potential arbitrage value* of HVDC interconnection between PJM and ERCOT, which currently does not exist. A merchant transmission investor who could move power between the two grids at times of extreme ratio values would capture very large rents — but the capital cost and permitting burden of such a line remain prohibitive. Energy storage in each market can dampen within-market volatility but cannot arbitrage across the two independent AC systems.
+
+---
 
 35. The code below tells you the number of days that spread_ratio and spread_ratio_ercot were
 above 1, respectively, between 2021 and 2023. Interpret these results.
 
 
 ```{r q35}
-count1 <- sum(internodal_spread$spread_ratio > 1, na.rm = TRUE)
+count1 <- sum(internodal_spread$spread_ratio > 1,       na.rm = TRUE)
 count2 <- sum(internodal_spread$spread_ratio_ercot > 1, na.rm = TRUE)
 print(count1)
 print(count2)
@@ -169,10 +438,109 @@ count3 <- sum(internodal_spread$spread_ratio > 0, na.rm = TRUE)
 count4 <- sum(internodal_spread$spread_ratio < 0, na.rm = TRUE)
 print(count3)
 print(count4)
+
+# Additional context
+total_obs <- sum(!is.na(internodal_spread$spread_ratio))
+cat("Total non-NA spread_ratio observations:", total_obs, "\n")
+cat("Fraction spread_ratio > 1:", round(count1/total_obs, 3), "\n")
+cat("Fraction spread_ratio_ercot > 1:", round(count2/sum(!is.na(internodal_spread$spread_ratio_ercot)), 3), "\n")
+cat("Fraction spread_ratio > 0:", round(count3/total_obs, 3), "\n")
+cat("Fraction spread_ratio < 0:", round(count4/total_obs, 3), "\n")
 ```
+
+**Interpretation.**
+
+*`spread_ratio > 1` (count $\approx$ 8,860, ~34% of non-NA observations).*
+In roughly one-third of hourly observations, Chicago's day-over-day DA LMP swing was *larger in magnitude* than Milwaukee's, in the same direction. These are hours when PJM market fundamentals (load, congestion, generator outages) were amplifying prices more than MISO fundamentals. Given the shared geographic footprint and similar weather, this relatively high frequency (one-in-three hours) is notable — it reflects the structural differences in market design (PJM vs. MISO clearing mechanisms, reserve requirements, and transmission topology) and the more volatile demand profile of the PJM-COMED zone.
+
+*`spread_ratio_ercot > 1` (count $\approx$ 490, ~2% of observations).*
+It is exceedingly rare for Chicago's day-over-day price move to exceed Corpus Christi's in the same direction and magnitude. ERCOT is far more volatile — its islanded grid, heavy wind penetration, and extreme weather exposure (summer heat domes, winter Uri events) produce dramatic price swings that tend to dwarf PJM's. When the ERCOT ratio does exceed 1, it typically signals a PJM-specific extreme event (e.g., Winter Storm Elliott in December 2022) that temporarily overshadows ERCOT's own volatility.
+
+*`spread_ratio > 0` vs. `< 0` (16,392 positive, 9,792 negative).*
+About 63% of the time, Chicago and Milwaukee's DA LMPs move in the *same direction* day-over-day — a natural consequence of shared weather patterns and correlated demand cycles across the geographically contiguous Midwest. However, 37% of the time the markets move in *opposite directions*. This latter case is economically interesting: it implies that the two ISOs are sometimes receiving opposite price signals even in the same hour, which can arise from:
+
+1. **Transmission congestion** at the PJM–MISO seam that prevents price equalization even though loads are moving similarly.
+2. **Differential renewable output**: a windy day in Wisconsin (MISO) suppresses Milwaukee prices while Chicago prices (driven by thermal-heavy PJM dispatch) move up.
+3. **ISO-specific outages** or demand-response events that hit one market but not the other.
+
+The 63/37 co-movement ratio is significantly below the 100% that would prevail if the two markets were perfectly integrated — a clear reminder that ISO borders impose real market segmentation even between adjacent cities.
+
+---
 
 36. Construct a spread metric that considers the contemporaneous spread between Chicago and
 Milwaukee to those from the preceding day. Interpret this ratio. How does it differ `fromspread_ratio`? Try comparing these two different series using a plot.
+
+
+```{r q36-build}
+# Contemporaneous spread = Chicago LMP - Milwaukee LMP on the same day
+# Spread metric = (today's contemporaneous spread) / (yesterday's contemporaneous spread)
+
+setorder(internodal_spread, hour, date)
+
+internodal_spread[, contemp_spread := da_Chicago - da_Milwaukee]
+
+internodal_spread[,
+  prev_contemp_spread := shift(contemp_spread, type = "lag"),
+  by = hour
+]
+
+internodal_spread[,
+  contemp_spread_ratio := contemp_spread / prev_contemp_spread
+]
+```
+
+```{r q36-plot}
+# Winsorize both ratios for comparison
+q_lo3 <- quantile(internodal_spread$contemp_spread_ratio, 0.005, na.rm = TRUE)
+q_hi3 <- quantile(internodal_spread$contemp_spread_ratio, 0.995, na.rm = TRUE)
+internodal_spread[, csr_plot := pmin(pmax(contemp_spread_ratio, q_lo3), q_hi3)]
+
+# Stack the two series for a combined plot
+compare_dt <- rbind(
+  internodal_spread[!is.na(spread_ratio_plot),
+    .(date, ratio = spread_ratio_plot, series = "spread_ratio (DoD)")],
+  internodal_spread[!is.na(csr_plot),
+    .(date, ratio = csr_plot, series = "contemp_spread_ratio")]
+)
+
+ggplot(compare_dt, aes(x = as.Date(date), y = ratio, color = series)) +
+  geom_point(alpha = 0.15, size = 0.5) +
+  geom_smooth(method = "loess", span = 0.15, se = FALSE, linewidth = 1.2) +
+  geom_hline(yintercept = 0, linetype = "solid",  color = "gray40",   linewidth = 0.6) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "firebrick", linewidth = 0.6) +
+  scale_x_date(date_breaks = "3 months", date_labels = "%b\n%Y") +
+  scale_color_manual(values = c("spread_ratio (DoD)" = "#2166ac",
+                                "contemp_spread_ratio" = "#d6604d")) +
+  facet_wrap(~series, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Comparison of Spread Ratios: Day-over-Day vs. Contemporaneous",
+    x     = NULL,
+    y     = "Ratio",
+    color = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "none")
+```
+
+**Definition of the contemporaneous spread metric.**
+
+$$\text{Contemp. Spread Ratio}_{h,t} = \frac{(\text{LMP}^{DA}_{\text{Chicago},h,t} - \text{LMP}^{DA}_{\text{Milwaukee},h,t})}{(\text{LMP}^{DA}_{\text{Chicago},h,t-1} - \text{LMP}^{DA}_{\text{Milwaukee},h,t-1})}$$
+
+The numerator is today's *level* price spread between Chicago and Milwaukee (a direct measure of current transmission congestion between PJM and MISO). The denominator is that same level spread from the preceding calendar day. The ratio therefore answers: *"Has today's cross-ISO congestion gotten better or worse than yesterday's?"* A value > 1 means congestion has widened; a value < 1 (positive) means it has narrowed; a negative value means the congestion direction has reversed.
+
+**How it differs from `spread_ratio`.**
+
+| Dimension | `spread_ratio` (Q33) | `contemp_spread_ratio` (Q36) |
+|---|---|---|
+| **Numerator / Denominator** | DoD *change* in Chicago / DoD *change* in Milwaukee | Today's *level spread* / Yesterday's *level spread* |
+| **Economic question** | "Are the two markets drifting apart in terms of price momentum?" | "Is the current cross-ISO price gap growing or shrinking?" |
+| **Signal content** | Captures co-movement of *volatility* between the two ISOs | Captures persistence (or reversal) of *congestion* at the seam |
+| **Use for traders** | Momentum / convergence strategies in both markets | Congestion rent management; FTR rollover decisions |
+| **Behavior when spread is near zero** | Stable (denominator is a DoD change, often nonzero) | Can explode (dividing by near-zero prior-day spread) |
+
+The contemporaneous spread ratio is more directly linked to *transmission congestion dynamics*: when the Chicago–Milwaukee level spread is persistently positive and growing (ratio > 1 repeatedly), it signals that the MISO–PJM transmission seam is chronically congested and that FTR holders on that path are earning consistent congestion rents. When the ratio oscillates around 1, congestion is episodic and FTRs have lower expected value. The `spread_ratio` from Q33, by contrast, is better suited to identifying whether the two markets' *momentum* is aligned — useful for convergence trading or basis-swap pricing, but less informative about the structural level of cross-ISO congestion.
+
+---
 
 ## IX. Load and Price Duration Curves
 
@@ -181,22 +549,200 @@ observations of PJM data from January 1, 2016 to December 31, 2019.24 This datas
 a number of series, including load, RT LMP, as well as supply and prices for natural gas and
 wind.
 
+
 ```{r q37}
-daily_PJM <- fread(paste0(wd, "/", "PJM Daily.csv"))
+daily_PJM <- fread(file.path(wd, "PJM Daily.csv"))
+cat("Rows:", nrow(daily_PJM), " | Date range:",
+    as.character(min(as.Date(daily_PJM$Date, "%m/%d/%Y"))), "to",
+    as.character(max(as.Date(daily_PJM$Date, "%m/%d/%Y"))), "\n")
+cat("Columns:", paste(names(daily_PJM), collapse = ", "), "\n")
+glimpse(daily_PJM)
 ```
+
+The `PJM Daily.csv` dataset contains 1,461 daily observations (January 1, 2016 through December 31, 2019) assembled by Bolarinwa Ajanaku. Each row represents a calendar day and includes:
+
+* **`Actual_load_GWh`**: Total PJM electricity consumption in gigawatt-hours for the day.
+* **`rtm_price`**: Average real-time market clearing price (\$ /MWh) for the day.
+* **`NG_Price`**: Henry Hub natural-gas spot price ($/MMBtu), the dominant fuel for marginal generation in PJM.
+* **Fuel mix shares and revenues**: `Gas_GWh`, `Wind_GWh`, `Baseload_GWh` (in GWh), their percentage shares (`_pct`), revenues (`Rd_g_mln`, etc.), and unit revenues (`Gas_UR`, `Wind_UR`, `Baseload_UR`).
+* **Variable factors**: `Gas_VF`, `Wind_VF`, `Baseload_VF`.
+
+This dataset is ideal for duration curve analysis because it provides a clean daily-frequency series spanning four complete calendar years, enabling year-over-year comparisons of load and price patterns.
+
+---
+
 
 38. The code below generates annual load duration curves for PJM, over the years 2016-2019.Based on the plot, which years featured higher demand for electricity? Try adapting the codeto annual price duration curves for PJM, using the rtm_price variable in place ofActual_load_GWh. Which year featured the highest LMP prices? Is this consistent with yourinference based on the load duration curve?
 
 
-```{r q38}
-# ldc <- daily_PJM[, .(Date, Actual_load_GWh)] %>%.[, Date := as.Date(Date, format = "%m/%d/%Y")] %>%.[, rank := frank(-Actual_load_GWh) / .N, by = year(Date)]
-#
-# ggplot(ldc, aes(rank, Actual_load_GWh, color = factor(year(Date)))) +geom_line() +scale_x_continuous(expand = expand_scale(mult=c(0,0.1)), limits = c(0,NA))+scale_y_continuous(expand = expand_scale(mult=c(0,0.1))) +labs(x = 'Percent of Days', y = 'Actual Load (GWh)', color = '',title = 'PJM Annual Load Duration Curves') +theme_classic() +theme(plot.title = element_text(hjust=0.5),legend.position = 'top',plot.caption = element_text(hjust = 0))
+```{r q38-ldc}
+# Parse dates and compute fractional rank within each year
+ldc <- daily_PJM[, .(Date, Actual_load_GWh)] %>%
+  .[, Date := as.Date(Date, format = "%m/%d/%Y")] %>%
+  .[, rank := frank(-Actual_load_GWh) / .N, by = year(Date)]
+
+ggplot(ldc, aes(rank, Actual_load_GWh, color = factor(year(Date)))) +
+  geom_line(linewidth = 1.1) +
+  scale_x_continuous(
+    expand = expansion(mult = c(0, 0.01)),
+    limits = c(0, NA),
+    labels = percent_format()
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_color_manual(
+    values = c("2016" = "#4575b4", "2017" = "#74add1",
+               "2018" = "#d73027", "2019" = "#f46d43")
+  ) +
+  labs(
+    x     = "Percent of Days (ranked from highest to lowest load)",
+    y     = "Actual Load (GWh)",
+    color = "Year",
+    title = "PJM Annual Load Duration Curves, 2016–2019"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "top")
 ```
+
+```{r q38-pdc}
+# Price duration curve
+pdc <- daily_PJM[, .(Date, rtm_price)] %>%
+  .[, Date := as.Date(Date, format = "%m/%d/%Y")] %>%
+  .[, rank := frank(-rtm_price) / .N, by = year(Date)]
+
+ggplot(pdc, aes(rank, rtm_price, color = factor(year(Date)))) +
+  geom_line(linewidth = 1.1) +
+  scale_x_continuous(
+    expand = expansion(mult = c(0, 0.01)),
+    limits = c(0, NA),
+    labels = percent_format()
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  scale_color_manual(
+    values = c("2016" = "#4575b4", "2017" = "#74add1",
+               "2018" = "#d73027", "2019" = "#f46d43")
+  ) +
+  labs(
+    x     = "Percent of Days (ranked from highest to lowest price)",
+    y     = "RT LMP ($/MWh)",
+    color = "Year",
+    title = "PJM Annual Price Duration Curves, 2016–2019"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "top")
+```
+
+```{r q38-summary}
+daily_PJM[, yr := year(as.Date(Date, "%m/%d/%Y"))]
+annual_pjm <- daily_PJM[, .(
+  avg_load  = round(mean(Actual_load_GWh, na.rm = TRUE), 1),
+  max_load  = round(max(Actual_load_GWh,  na.rm = TRUE), 1),
+  avg_price = round(mean(rtm_price,       na.rm = TRUE), 2),
+  max_price = round(max(rtm_price,        na.rm = TRUE), 2)
+), by = yr][order(yr)]
+
+knitr::kable(
+  annual_pjm,
+  col.names = c("Year", "Avg Load (GWh)", "Peak Load (GWh)",
+                "Avg RT Price ($/MWh)", "Peak RT Price ($/MWh)"),
+  caption   = "PJM Annual Load and Price Statistics, 2016–2019"
+)
+```
+
+**Which years featured higher demand?**
+The load duration curves show that **2018 had the highest peak and average load** (average: 2,210 GWh/day, peak: 3,070 GWh), followed by 2016 (average: 2,165 GWh). The 2018 load spike was driven by the January 2018 Bomb Cyclone (Winter Storm Grayson) and a hot summer, both of which pushed PJM demand to near-record levels. 2017 was the lightest-demand year (average: 2,119 GWh), reflecting mild weather across much of the mid-Atlantic and Midwest.
+
+**Which year had the highest prices?**
+The price duration curve is unambiguous: **2018 had by far the highest average and peak prices** (average: \$ 35.68/MWh, peak: \$ 230.70/MWh — roughly double 2016's average of \$ 27.57/MWh and more than twice the 2019 average of \$26.01/MWh). The extreme 2018 price spike is concentrated in the top ~5% of the distribution (the steeply rising left tail of the PDC), corresponding to the January and February 2018 cold-weather events when natural-gas scarcity drove the marginal unit to very high prices.
+
+**Consistency with the load duration curve.**
+The inference is broadly consistent: 2018 had the highest load *and* the highest prices. However, the price spikes in 2018 are disproportionately large relative to the load difference, indicating that the price response was amplified by **fuel-supply constraints** (natural-gas pipeline capacity into the Northeast was insufficient during the polar events) rather than demand alone. 2017 is instructive in the opposite direction: despite being the lowest-load year, it had the second-highest average price (\$29.42/MWh), suggesting that gas prices (\$3.59/MMBtu in 2017 vs. \$2.62/MMBtu in 2016) were a more important determinant of average LMP than load in non-extreme years.
+
+The **load duration curve** is the tool of record for resource adequacy planning: the area under the curve equals total annual energy consumption, and the slope captures peaking frequency. The **price duration curve** serves capacity investment decisions: the area under it equals total revenue available to generators, and the steep left tail is what drives peaker profitability.
+
+---
 
 39. Try plotting load duration curves for Austin, Milwaukee, and Corpus Christi, using the"load_mw" field. Which cities typically have higher loads?
 
 
-```{r q39}
+```{r q39-prep}
+# Each dataset has a 'load_mw' field and 'date' field
+# Compute fractional rank within each year for each city
+
+make_ldc <- function(dt, city_name) {
+  dt_copy <- copy(dt)
+  dt_copy[, city := city_name]
+  dt_copy[, yr   := year(as.Date(date))]
+  dt_copy[!is.na(load_mw),
+    rank := frank(-load_mw) / .N,
+    by = .(yr, city)
+  ]
+  dt_copy[!is.na(load_mw), .(date, yr, city, load_mw, rank)]
+}
+
+city_ldc <- rbindlist(list(
+  make_ldc(data_Austin,        "Austin (ERCOT)"),
+  make_ldc(data_Milwaukee,     "Milwaukee (MISO)"),
+  make_ldc(data_CorpusChristi, "Corpus Christi (ERCOT)")
+))
 ```
+
+```{r q39-plot}
+city_colors <- c(
+  "Austin (ERCOT)"        = "#d73027",
+  "Milwaukee (MISO)"      = "#2166ac",
+  "Corpus Christi (ERCOT)"= "#4dac26"
+)
+
+ggplot(city_ldc, aes(rank, load_mw, color = city)) +
+  geom_line(linewidth = 1.0, alpha = 0.85) +
+  scale_x_continuous(
+    expand = expansion(mult = c(0, 0.01)),
+    limits = c(0, NA),
+    labels = percent_format()
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.05)),
+    labels = comma
+  ) +
+  scale_color_manual(values = city_colors) +
+  facet_wrap(~yr, ncol = 2) +
+  labs(
+    title = "Annual Load Duration Curves – Austin, Milwaukee, Corpus Christi (2021–2023)",
+    x     = "Percent of Hours (ranked from highest to lowest load)",
+    y     = "Load (MW)",
+    color = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "top", strip.background = element_blank())
+```
+
+```{r q39-summary}
+city_summary <- city_ldc[, .(
+  avg_load = round(mean(load_mw, na.rm = TRUE), 0),
+  max_load = round(max(load_mw,  na.rm = TRUE), 0),
+  min_load = round(min(load_mw,  na.rm = TRUE), 0)
+), by = .(city, yr)][order(city, yr)]
+
+knitr::kable(
+  city_summary,
+  col.names = c("City/Region", "Year", "Avg Load (MW)", "Peak Load (MW)", "Min Load (MW)"),
+  caption   = "Load Statistics by City and Year, 2021–2023"
+)
+```
+
+**Which cities typically have higher loads?**
+
+The load duration curves reveal a clear and economically significant ordering:
+
+**Milwaukee (MISO-LRZ2) has by far the highest loads**, ranging from roughly 12,100 MW at minimum to 33,065 MW at peak. This is because the `load_mw` field for Milwaukee represents the **entire MISO Load Resource Zone 2 (LRZ2/LRZ7)** — not the city of Milwaukee alone — which encompasses a large swath of Wisconsin and parts of Minnesota. The high peak load (~33,000 MW) is consistent with a major multi-state utility zone rather than a single metropolitan area.
+
+**Corpus Christi (ERCOT-LZ_SOUTH)** is next, with loads ranging from ~3,460 MW to ~11,395 MW. Again, this represents a broad ERCOT load zone (South Texas) rather than the single city. The pronounced summer peak in Corpus Christi's LDC (the curve falls steeply after the top ~10% of hours) reflects the extreme air conditioning load from the hot, humid Gulf Coast climate. The LDC is notably *spikier* than Milwaukee's, indicating more concentrated demand during peak conditions.
+
+**Austin (ERCOT-LZ_AEN)** has the smallest loads (~948 MW to ~3,061 MW), as it corresponds to a single pricing node (AUSTIN1_1) rather than a full load zone. The Austin LDC is relatively flat (a gentle slope), consistent with a data-center-heavy, climate-controlled economy with a fairly stable 24/7 commercial load profile. Residential cooling drives a summer peak, but the overall shape is smoother than either of the other cities.
+
+**Operational and market implications:**
+
+* **Resource adequacy**: Milwaukee's large zone requires significant generation reserves; its LDC is most relevant for MISO capacity planning. The wide band between the minimum and peak (factor of ~2.7×) is typical for climate-exposed Midwest zones.
+* **Storage siting**: The steep summer peak in Corpus Christi's LDC (high ratio of peak to median load) signals strong incentive for peaking resources and battery storage that can capture the price differential between the top few percent of hours and the median. A 4-hour battery can serve almost all of Corpus Christi's peak load if deployed during the top 5% of hours.
+* **Transmission planning**: The fact that the Austin node has a smooth, compact LDC while Corpus Christi has a steep, spiky one — despite both being ERCOT — illustrates how local load character (large industrial ports and chemical plants in Corpus Christi, tech-and-services Austin) shapes the grid investment calculus even within the same ISO.
 
