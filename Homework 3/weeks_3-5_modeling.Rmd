@@ -60,6 +60,13 @@ deviation of the daily volatility of the RT-DA LMP spread. Is there an obvious p
 ```{r q25}
 ggplot(lmp_temp_Chicago, aes(x=temp, y=log(vol_spread)) ) +geom_hdr(xlim = c(-25, 100), ylim = c(0,10)) +geom_point(shape = 21) +labs(fill = '', alpha = 'Probability',x = 'Average Daily Temperature (Degrees Fahrenheit)',y = 'Logged Standard Deviation of (Lagged DA LMP - RT LMP)') +theme_classic() +theme(legend.position = 'top') +facet_grid(~year)
 ```
+The joint density plot reveals a general bimodal structure for each year with two probability clouds appearing at low temperatures (~20–40°F, winter) and high temperatures (~60–85°F, summer), separated by a number of mild/transitional days. This reflects Chicago’s climate, where cold winters and hotter summers dominate with shorter springs and falls.
+
+There is also a pattern of LMP spread volatility that is elevated at temperature extremes and lower during mild weather. When temperatures are either very cold or very hot, peaking generation is needed to meet demand, and the gap between real-time and day-ahead prices widens.
+
+Outliers in 2022: The two highest data points which are around −4°F and 7°F with
+log-volatility above 6.6 fall in the 2022 panel. They correspond to December 23–24, 2022, the
+days of Winter Storm Elliott. Mean RT LMP reached over $635/MWh on those days as the extreme cold drove heating demand and knocked generation offline across PJM. Theres also a third 2022 outlier at 73°F (June 13, 2022) reflects a summer heat wave amplified by the elevated gas prices of that year. 
 
 26. The code below renders the plots above using a 3D density plot. Give it a try! What do thepeaks and valleys represent?
 
@@ -77,6 +84,11 @@ persp(dens_Chicago$x, dens_Chicago$y, dens_Chicago$z,
       col = "lightblue", shade = 0.4, ticktype = "detailed",
       main = "Joint Density: Temperature vs. Spread Volatility")
 ```
+The 3D plot confirms the bimodal structure in Q25. Two peaks rise show one at cold temperatures (~25–40°F, low-to-moderate volatility) and one at warm temperatures (~65–80°F, low-to-moderate volatility). 
+
+These peaks represent the most frequently occurring combinations of temperature and spread volatility over the
+period. So, peaks indicate dense clusters of days which are the most ‘typical’ winter and summer conditions. Valleys represent rarer or transitional states like the mild spring/fall days and days with extreme spread volatility. The ridge between the two peaks corresponds to the zone of moderate temperatures that Chicago rarely occupies for long periods.
+
 
 ## VII. Comparing Interconnected Transmission Regions
 
@@ -92,6 +104,16 @@ lmp_cities <- data.table(date = data_Milwaukee$date,Milwaukee = data_Milwaukee$D
 
 ggplot(lmp_cities, aes(x=date,y=da_spread)) +stat_summary(size=0.2) +labs(x='',y='Chicago DA LMP - Milwaukee DA LMP ($/MWh)')+theme_classic()
 ```
+For the vast majority of hours the spread clusters tightly around zero, reflecting the fact that Chicago (PJM) and Milwaukee (MISO) are geographically close and probably somewhat integrated in transmission. 
+
+Outlier days: Sharp positive and negative spikes, especially in 2022 and 2023, represent
+days when the PJM–MISO interface became congested. On those days, power could not flow freely between the grids, allowing prices to diverge significantly. The asymmetric nature of some spikes also reflects
+directionality in transmission congestion depending on which grid is experiencing higher
+demand or generation shortfalls.
+
+Weather as explanation: Plotting the spread in average daily temperatures between the two
+cities which are close to each other produces a fairly constant near-zero line with no extreme spikes which is to say that
+weather does not explain the LMP outliers. This confirms that the price divergence is likely a product of transmission congestion and not weather.
 
 28. One might expect that weather in Milwaukee and Chicago to be similar. The code below
 generates scatter plots comparing average daily temperatures in Milwaukee and Chicago,
@@ -114,6 +136,10 @@ ggplot(temperature_cities, aes(x = Milwaukee, y = Chicago)) +
   theme_classic()
 ```
 
+Temperatures are tightly aligned: The temperature scatter hugs the 45° red line closely in all three years which is to be expected given the two cities are only 90 miles apart and share the same climate. Day-to-day correlation is very high and deviations are minor.
+
+However, the DA LMPs are far less aligned. The LMP scatter shows much greater dispersion and while there is a positive correlation (prices broadly move together likely due to some shared fuel costs and weather), many days exhibit large deviations which could be the result of transmission congestion, different market rules/conditions, and/or slightly different generation mixes.
+
 29. We can examine whether daily temperatures in Chicago and Milwaukee are drawn from a
 normal distribution using a Q-Q plot. Based on the Q-Q plot created from the code below, towhat extent are these temperature series normal? Try creating a similar Q-Q plot comparingAustin and Corpus Christi temperatures to the normal distribution. As an optional step, trycreating a Q-Q plot of Chicago average temperatures against Milwaukee temperatures. Arethese series drawn from the same distribution?
 
@@ -122,9 +148,24 @@ normal distribution using a Q-Q plot. Based on the Q-Q plot created from the cod
 ggplot(temperature_cities %>% pivot_longer(!date, names_to = 'series', values_to ='temp'),aes(sample = temp, color = series)) +geom_qq() +geom_qq_line() +labs(x='Theoretical Normal Distribution Quantiles',y='Sample Quantiles (Degrees Fahrenheit)',color = '') +theme_classic() +theme(legend.position = 'top')
 ```
 
+The Q-Q plot shows that neither Chicago nor Milwaukee temperatures are drawn from a normal distribution. Both series deviate from the reference line in a S-shape with the lower tail being above the normal line (colder extremes are less extreme than a normal would predict) while the upper tail curves away similarly. More importantly, the middle of the distribution is fairly flat. This would suggest that the data ‘pile up’ at moderate values less than a normal distribution would suggest. However, that pattern is consistent with a bimodal distribution where we saw that Chicago’s climate produces many cold winter days and many hot summer days, but relatively fewer mild days around 55–65°F. A true normal distribution would put the most mass around the mean (~50°F), which is not what we see. 
+
+Austin and Corpus Christi: These Texas cities would show a very different Q-Q plot with temperatures that are right-skewed (rarely below freezing but a long hot tail), with the curve lying predominantly above the normal reference line at the left and below at the right. The two cities’ temperatures would likely look more similar to each other than Chicago and Milwaukee do to a normal distribution, since their climates are mostly just dominated by heat.
+
+
 30. In February 2021, Texas suffered a devastating winter storm that exacerbated the
 vulnerabilities of its power grid. The code below displays average daily temperatures and
 real-time LMPs in Chicago, Milwaukee, and Corpus Christi during this month. Note the scalefor each plot. What do you observe from these plots? Conjecture as to the relationshipbetween prices and weather. Do you think the relationship is linear? Describe the role andnuances of anomalous weather.
+
+The February 2021 plots tell the story of how anomalous weather can overwhelm electricity grid infrastructure (something I personally experience when living in Texas in 2021).
+Temperature patterns: All three cities experienced sharp drops beginning around February 9–10. Chicago and Milwaukee fell to the 0–15°F range, which, while cold, is within their normal winter range. Corpus Christi, however, which typically stays well above freezing in February, went to near-freezing temperatures which is an anomaly for southern Texas.
+
+Price response: Chicago and Milwaukee saw RT LMP spikes reaching $500–$800/MWh during the coldest days which would be high but manageable. Corpus Christi (ERCOT) meanwhile experienced price spikes exceeding $2,000/MWh on the plot’s y-axis. This reflects the essential breakdown of ERCOT’s grid as generation assets froze offline.
+
+Is the relationship linear? No the price to weather relationship is highly nonlinear. At normal temperatures, demand is served by baseload generation at reasonable prices. But as temperatures fall into unusual territory and generation equipment fails, prices jump. Once the marginal unit sets price and then fails, the next unit charges the full scarcity price. And because ERCOT has no mandatory interconnection with neighboring grids, so there was no relief valve.
+
+The role of anomalous weather: Anomalous events like this show systemic vulnerabilities that standard pricing models that built on historical data will miss entirely. The cold snap exposed under-investment in weatherization (gas wells froze, wind turbines froze, thermal plants tripped offline), inadequate reserve margins, and the risk premium of grid isolation. In interconnected markets like PJM, the impact was significant but cushioned by being able to draw power from neighboring regions.
+
 
 ## VIII. Contracts for Differences
 
