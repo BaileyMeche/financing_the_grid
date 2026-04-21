@@ -2,7 +2,7 @@
 title: "Spring 2025 Homework Modeling Exercises Weeks 3 & 5"
 author: "Group 2: Bailey Meche, Eliott Raia, University of Chicago"
 geometry: "left=1cm,right=1cm,top=1cm,bottom=1.5cm"
-date: "04-?-2026"
+date: "04-21-2026"
 output: pdf_document
 header-includes:
   - \usepackage{caption}
@@ -34,7 +34,7 @@ library(magrittr)
 library(lubridate)
 library(scales)
 
-wd <- "C:/Users/baile/Box/spring26/GridFinancing/hw1/data" # set your working directory here
+wd <- "" # set your working directory here
 # setwd(wd) 
 
 # from hw1
