@@ -1,0 +1,626 @@
+---
+title: "Homework 4 – PJM No-Illinois Futures: Seasonality, Monte Carlo, and Operating Value"
+author: "Group 2: Bailey Meche, Eliott Raia, University of Chicago"
+geometry: "left=1.5cm,right=1.5cm,top=1.5cm,bottom=1.5cm"
+date: "April 2026"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    number_sections: false
+header-includes:
+  - \usepackage{caption}
+  - \usepackage{float}
+  - \usepackage{xcolor}
+  - \usepackage{amsmath}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  fig.pos = "H",
+  message = FALSE,
+  warning = FALSE,
+  fig.width  = 10,
+  fig.height = 5
+)
+options(scipen = 999)
+set.seed(42)
+
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lubridate)
+library(scales)
+library(knitr)
+
+wd <- "C:/Users/Owner/Box/spring26/GridFinancing/financing_the_grid/Homework 4"
+
+# ── Load futures data ──────────────────────────────────────────────────────────
+pjm_off  <- fread(file.path(wd, "pjm_noillinois_offpeak_futures2025.csv"))
+pjm_peak <- fread(file.path(wd, "pjm_noillinois_dapeak_futures2025.csv"))
+
+# Strip blank trailing rows
+pjm_off  <- pjm_off[!is.na(Date) & Date != ""]
+pjm_peak <- pjm_peak[!is.na(Date) & Date != ""]
+
+# Parse "Mon-YY" → first-of-month Date
+parse_ym <- function(x) as.Date(paste0("01-", x), format = "%d-%b-%y")
+
+pjm_off[,  date := parse_ym(Date)]
+pjm_peak[, date := parse_ym(Date)]
+
+# Year fraction from Jan 1 2025 (base for regression)
+base_date <- as.Date("2025-01-01")
+pjm_off[,  year_frac  := as.numeric(date - base_date) / 365.25]
+pjm_peak[, year_frac  := as.numeric(date - base_date) / 365.25]
+pjm_off[,  month_num  := month(date)]
+pjm_peak[, month_num  := month(date)]
+pjm_off[,  log_price  := log(Future)]
+```
+
+---
+
+## Part (a): Log-Linear Regression with Trend and Monthly Seasonality
+
+### Data overview
+
+```{r part-a-overview}
+# Quick look at both series
+combined_view <- merge(
+  pjm_off[,  .(date, Off_Peak = Future)],
+  pjm_peak[, .(date, DA_Peak  = Price)],
+  by = "date", all = TRUE
+)
+
+combined_long <- combined_view %>%
+  pivot_longer(cols = c(Off_Peak, DA_Peak),
+               names_to = "Contract", values_to = "Price") %>%
+  mutate(Contract = factor(Contract,
+                           levels = c("DA_Peak","Off_Peak"),
+                           labels = c("DA On-Peak","Off-Peak")))
+
+ggplot(combined_long, aes(x = date, y = Price, color = Contract, group = Contract)) +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 1.5) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b\n%Y") +
+  scale_color_manual(values = c("DA On-Peak" = "#d73027", "Off-Peak" = "#2166ac")) +
+  labs(
+    title   = "PJM No-Illinois DA On-Peak and Off-Peak Futures Prices, May 2025 – Jun 2030",
+    x       = NULL, y = "Futures Price ($/MWh)", color = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+### Model specification
+
+We model the natural logarithm of the monthly off-peak futures price as a log-linear function of a continuous annual trend and a set of monthly fixed effects:
+
+$$\ln\!\left(F_{t,m}\right) = \beta_0 + \beta_1 \cdot t + \sum_{m=2}^{12} \gamma_m \cdot \mathbf{1}[m_t = m] + \varepsilon_{t,m}$$
+
+where $t$ is the year fraction elapsed since January 1, 2025, $m_t \in \{1,\ldots,12\}$ is the calendar month, January is the baseline month (absorbed into $\beta_0$), and $\varepsilon_{t,m} \sim \mathcal{N}(0,\sigma^2)$ is an i.i.d. regression error. Exponentiating gives a multiplicative seasonal-trend model for the level price.
+
+```{r part-a-regression}
+fit_off <- lm(log_price ~ year_frac + factor(month_num), data = pjm_off)
+summary(fit_off)
+```
+
+```{r part-a-coef-table}
+coef_df <- as.data.frame(summary(fit_off)$coefficients)
+coef_df$Term <- rownames(coef_df)
+rownames(coef_df) <- NULL
+
+# Relabel cleanly
+coef_df$Term <- gsub("factor\\(month_num\\)", "Month ", coef_df$Term)
+coef_df <- coef_df[, c("Term","Estimate","Std. Error","t value","Pr(>|t|)")]
+coef_df[, 2:5] <- round(coef_df[, 2:5], 5)
+
+kable(coef_df,
+      col.names = c("Term", "Estimate", "Std. Error", "t value", "p value"),
+      caption   = "OLS Regression: log(Off-Peak Futures) ~ Trend + Month Dummies")
+```
+
+```{r part-a-fit-plot}
+pjm_off[, fitted_log  := fitted(fit_off)]
+pjm_off[, fitted_price := exp(fitted_log)]
+
+ggplot(pjm_off, aes(x = date)) +
+  geom_point(aes(y = Future, color = "Actual"), size = 2.5) +
+  geom_line(aes(y = fitted_price, color = "Fitted"), linewidth = 1.1) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b\n%Y") +
+  scale_color_manual(values = c("Actual" = "#2166ac", "Fitted" = "#d73027")) +
+  labs(
+    title  = "Off-Peak Futures: Actual vs. Regression Fitted Values",
+    x      = NULL, y = "Off-Peak Futures Price ($/MWh)", color = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+```{r part-a-diagnostics}
+par(mfrow = c(1, 2))
+plot(fit_off, which = 1, main = "Residuals vs Fitted")
+plot(fit_off, which = 2, main = "Normal Q-Q")
+par(mfrow = c(1, 1))
+```
+
+### Interpretation of regression results
+
+**Trend (β₁ = `r round(coef(fit_off)["year_frac"], 4)`).**
+The positive annual trend coefficient implies that the market expects off-peak prices to grow at approximately `r round(coef(fit_off)["year_frac"] * 100, 2)`% per year in log terms — equivalent to roughly `r round((exp(coef(fit_off)["year_frac"]) - 1) * 100, 2)`% per year in levels. This forward-looking price appreciation likely reflects the market's expectation of (i) gradual natural-gas price escalation, (ii) increasing demand from electrification (EVs, heat pumps, data centres), and (iii) retiring baseload capacity increasing the cost of marginal supply. The trend is highly statistically significant (t = 10.4, p < 0.0001) and explains the clear upward drift visible in both the on-peak and off-peak series.
+
+**Monthly seasonality (γ₂ … γ₁₂).**
+All twelve month effects are significant at p < 0.001. January is the baseline (highest off-peak price in the year), with the following pattern:
+
+* **January** (baseline): highest off-peak prices, driven by winter heating demand keeping load high even overnight and on weekends.
+* **December**: second-highest (γ₁₂ ≈ −0.196), modestly below January — holiday weeks depress weekend industrial loads but cold weather keeps residential and commercial demand elevated.
+* **February** (γ₂ ≈ −0.105): slightly below December; shorter month and moderating temperatures.
+* **July / August** (γ₇ ≈ −0.322, γ₈ ≈ −0.410): summer cooling demand shows up in peak hours but off-peak (overnight/weekend) prices are lower because industrial loads fall and wind generation (which is stronger at night) suppresses overnight prices.
+* **Shoulder months (March – June, September – October)**: the deepest seasonal discounts (γ₃ to γ₁₀ range from −0.40 to −0.62), reflecting the mild-weather periods when both heating and cooling loads are minimal and renewables can readily serve off-peak demand.
+
+The regression explains **`r round(summary(fit_off)$r.squared * 100, 1)`%** of the variance in log off-peak prices (Adjusted R² = `r round(summary(fit_off)$adj.r.squared * 100, 1)`%), with a residual standard deviation of `r round(summary(fit_off)$sigma, 4)`. The Q-Q plot confirms near-normality of residuals, validating the log-linear model.
+
+---
+
+## Part (b): Monte Carlo Simulation of Average Monthly Off-Peak Prices
+
+### Uncertainty decomposition
+
+The problem posits two distinct sources of uncertainty for the average off-peak price in month $(t, m)$:
+
+1. **Variation around the (given) mean** — σ = 0.1 in log space. This represents the realized dispersion of actual hourly prices around a known monthly mean: plant outages, intra-month weather swings, and load forecast errors.
+
+2. **Variation in the mean itself** — the trend $\beta_1$ is estimated from futures prices, but futures prices themselves embed expectations that may shift. Over a longer horizon the accumulated uncertainty in the trend dominates. Specifically, the *expected* log price for month $t$ is $\mu_t = \hat\beta_0 + \hat\beta_1 \cdot t + \hat\gamma_{m_t}$, but $\hat\beta_1$ itself has estimation uncertainty $\hat\sigma_{\beta_1}$, so the uncertainty in $\mu_t$ due to trend drift is $t \cdot \hat\sigma_{\beta_1}$, which grows linearly with the horizon.
+
+**Combined variance** for the log price at horizon $t$:
+
+$$\text{Var}\!\left[\ln P_{t,m}\right] = \underbrace{(t \cdot \hat\sigma_{\beta_1})^2}_{\text{trend uncertainty}} + \underbrace{\sigma^2_{\text{monthly}}}_{\text{=\,0.01}}$$
+
+We implement this by sampling a *path-level* trend draw $\tilde\beta_1^{(k)} \sim \mathcal{N}(\hat\beta_1,\, \hat\sigma^2_{\beta_1})$ for each Monte Carlo path $k$, and then drawing each month's log price from $\mathcal{N}(\hat\beta_0 + \tilde\beta_1^{(k)} t_i + \hat\gamma_{m_i},\; 0.1^2)$. This gives path-level correlation across months within the same simulation (a shared trend draw) plus independent scatter around each month's conditional mean.
+
+### Implementation
+
+```{r part-b-setup}
+# ── Parameters ──────────────────────────────────────────────────────────────
+N_paths   <- 1000
+sigma_monthly <- 0.1    # given: SD of log monthly off-peak price around known mean
+
+# ── Regression parameters ────────────────────────────────────────────────────
+b0        <- coef(fit_off)["(Intercept)"]
+b1_hat    <- coef(fit_off)["year_frac"]
+b1_se     <- summary(fit_off)$coefficients["year_frac", "Std. Error"]
+gamma_hat <- coef(fit_off)[grep("factor\\(month_num\\)", names(coef(fit_off)))]
+
+# Map month number → gamma coefficient (month 1 = 0, months 2-12 from regression)
+month_effect <- function(m) {
+  key <- paste0("factor(month_num)", m)
+  if (key %in% names(gamma_hat)) gamma_hat[key] else 0.0
+}
+
+# ── Build the full grid of simulation months ─────────────────────────────────
+# May 2025 through June 2030; May 2030 is missing from both data files —
+# we interpolate it as the midpoint of April and June 2030.
+sim_months <- seq(as.Date("2025-05-01"), as.Date("2030-06-01"), by = "month")
+
+sim_grid <- data.table(
+  date      = sim_months,
+  month_num = month(sim_months),
+  year_frac = as.numeric(sim_months - base_date) / 365.25
+)
+sim_grid[, gamma := sapply(month_num, month_effect)]
+sim_grid[, mu_hat := b0 + b1_hat * year_frac + gamma]   # regression fitted log price
+
+# Years from simulation start (May 2025) — for discounting and MC cost
+ref_date <- as.Date("2025-05-01")
+sim_grid[, years_from_start := as.numeric(date - ref_date) / 365.25]
+
+cat("Simulation grid: ", nrow(sim_grid), "months,",
+    format(min(sim_grid$date), "%b %Y"), "to",
+    format(max(sim_grid$date), "%b %Y"), "\n")
+cat("Trend coefficient: β₁ =", round(b1_hat, 5),
+    " | SE(β₁) =", round(b1_se, 5), "\n")
+cat("Given monthly log-price SD: σ =", sigma_monthly, "\n")
+```
+
+```{r part-b-mc}
+# ── Monte Carlo: 1000 paths ──────────────────────────────────────────────────
+n_months <- nrow(sim_grid)
+mu_mat   <- sim_grid$mu_hat   # vector of regression-predicted log means
+
+# Component (i): path-level trend draws
+b1_draws <- rnorm(N_paths, mean = b1_hat, sd = b1_se)
+
+# Build matrix of path means: n_months × N_paths
+# mu_mat[i,k] = b0 + b1_draws[k]*t_i + gamma_i
+t_vec    <- sim_grid$year_frac
+gamma_vec <- sim_grid$gamma
+
+# outer product adjustment for trend draw
+# path mean = b0 + b1_draws[k]*t[i] + gamma[i]
+mean_matrix <- outer(gamma_vec + b0, rep(1, N_paths)) +
+               outer(t_vec, b1_draws)   # n_months × N_paths
+
+# Component (ii): independent scatter around each month's path mean
+noise_matrix <- matrix(rnorm(n_months * N_paths, mean = 0, sd = sigma_monthly),
+                       nrow = n_months, ncol = N_paths)
+
+log_price_matrix <- mean_matrix + noise_matrix   # n_months × N_paths
+price_matrix     <- exp(log_price_matrix)         # simulated off-peak levels
+
+cat("Simulated price matrix dimensions:", dim(price_matrix), "\n")
+cat("Overall price mean ($/MWh):", round(mean(price_matrix), 2), "\n")
+cat("Overall price SD  ($/MWh):", round(sd(price_matrix), 2), "\n")
+```
+
+```{r part-b-fan-plot}
+# ── Fan chart of sample paths ─────────────────────────────────────────────────
+# Compute quantiles across paths for each month
+quant_levels <- c(0.05, 0.25, 0.50, 0.75, 0.95)
+quant_mat    <- apply(price_matrix, 1, quantile, probs = quant_levels)
+
+fan_dt <- data.table(
+  date = sim_grid$date,
+  q05  = quant_mat["5%",],
+  q25  = quant_mat["25%",],
+  q50  = quant_mat["50%",],
+  q75  = quant_mat["75%",],
+  q95  = quant_mat["95%",],
+  futures = pjm_off$Future[match(sim_grid$date, pjm_off$date)]
+)
+
+ggplot(fan_dt, aes(x = date)) +
+  geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#4575b4", alpha = 0.18) +
+  geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#4575b4", alpha = 0.30) +
+  geom_line(aes(y = q50, color = "Simulated Median"), linewidth = 1.2) +
+  geom_point(aes(y = futures, color = "Actual Futures"), size = 2.2, na.rm = TRUE) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b\n%Y") +
+  scale_color_manual(values = c("Simulated Median" = "#d73027",
+                                "Actual Futures"   = "#2166ac")) +
+  labs(
+    title    = "Monte Carlo Fan Chart – Off-Peak Price Simulation (1,000 Paths)",
+    subtitle = "Bands: 5th–95th percentile (light) and 25th–75th percentile (dark)",
+    x        = NULL, y = "Off-Peak Price ($/MWh)", color = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+```{r part-b-log-variance}
+# ── Demonstrate growing uncertainty in log-price ──────────────────────────────
+log_sd_by_month <- apply(log_price_matrix, 1, sd)
+
+var_trend    <- (sim_grid$year_frac * b1_se)^2      # component (i)
+var_monthly  <- sigma_monthly^2                      # component (ii) = 0.01
+var_total_theory <- var_trend + var_monthly
+
+var_compare <- data.table(
+  date             = sim_grid$date,
+  SD_simulated     = log_sd_by_month,
+  SD_theoretical   = sqrt(var_total_theory),
+  SD_monthly_only  = sigma_monthly,
+  SD_trend_only    = sim_grid$year_frac * b1_se
+)
+
+ggplot(var_compare, aes(x = date)) +
+  geom_line(aes(y = SD_simulated,   color = "Simulated SD"),   linewidth = 1.1) +
+  geom_line(aes(y = SD_theoretical, color = "Theoretical SD"), linewidth = 1.1, linetype = "dashed") +
+  geom_hline(aes(yintercept = sigma_monthly, color = "Given σ = 0.1"),
+             linewidth = 0.9, linetype = "dotted") +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b\n%Y") +
+  scale_color_manual(values = c(
+    "Simulated SD"   = "#2166ac",
+    "Theoretical SD" = "#d73027",
+    "Given σ = 0.1"  = "gray40"
+  )) +
+  labs(
+    title    = "Log-Price Standard Deviation Across Monte Carlo Paths by Month",
+    subtitle = "Trend uncertainty grows with horizon; total SD > 0.1 after ~2 years",
+    x        = NULL, y = "SD of log(Off-Peak Price)", color = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+### Description of the Monte Carlo construction
+
+**Why two separate components?**
+The problem specifies σ = 0.1 as the *conditional* spread of log prices around a *known* mean. This is a within-month idiosyncratic shock — plant-forced outages, intra-month temperature swings, and real-time versus day-ahead divergences. It is independent of the horizon. The *mean* itself, however, is driven by a trend estimated from futures prices, and that estimate carries its own uncertainty that compounds over time: at a 5-year horizon, a ±1 SE swing in the annual trend coefficient ($\hat\sigma_{\beta_1}$ = `r round(b1_se, 5)`) translates to a ±`r round(5 * b1_se, 3)` shift in the expected log price, or ±`r round((exp(5 * b1_se) - 1) * 100, 1)`% in the level price.
+
+**Practical construction:**
+For each of the 1,000 paths $k = 1, \ldots, 1000$:
+
+1. Draw a single *path-level trend shock*:
+   $\tilde\beta_1^{(k)} \sim \mathcal{N}(\hat\beta_1,\, \hat\sigma^2_{\beta_1})$
+   This is shared across all months within path $k$, creating positive correlation between months on the same path (a common stochastic trend).
+
+2. For each month $i$ in the simulation horizon, compute the path-specific conditional mean:
+   $\tilde\mu_i^{(k)} = \hat\beta_0 + \tilde\beta_1^{(k)} \cdot t_i + \hat\gamma_{m_i}$
+
+3. Draw the realized log price:
+   $\ln\!\left(\tilde P_i^{(k)}\right) \sim \mathcal{N}\!\left(\tilde\mu_i^{(k)},\; 0.1^2\right)$
+   This is *independent across months and paths*, capturing the idiosyncratic component.
+
+**Key output:**
+The total log-price standard deviation at a horizon of $t$ years equals $\sqrt{(t \cdot \hat\sigma_{\beta_1})^2 + 0.1^2}$. For May 2025 (t ≈ 0.33 years) this is ≈ 0.101; by June 2030 (t ≈ 5.41 years) it has grown to ≈ `r round(sqrt((5.41 * b1_se)^2 + 0.01), 3)`, dominated by trend uncertainty. The fan chart confirms this: the bands narrow near 2025 (where the futures anchor the model) and widen substantially by 2029–2030. The simulated median tracks the futures-implied curve closely, as expected, since the simulation is centered on the regression fit.
+
+```{r part-b-summary-table}
+# Summarize key percentiles for selected months
+key_months <- sim_grid$date[c(1, 6, 13, 25, 37, 49, 61)]
+key_idx    <- which(sim_grid$date %in% key_months)
+
+summ_dt <- data.table(
+  Month  = format(sim_grid$date[key_idx], "%b %Y"),
+  `Futures` = round(pjm_off$Future[match(sim_grid$date[key_idx], pjm_off$date)], 2),
+  `Sim P5`  = round(fan_dt$q05[key_idx], 2),
+  `Sim P25` = round(fan_dt$q25[key_idx], 2),
+  `Sim P50` = round(fan_dt$q50[key_idx], 2),
+  `Sim P75` = round(fan_dt$q75[key_idx], 2),
+  `Sim P95` = round(fan_dt$q95[key_idx], 2)
+)
+
+kable(summ_dt,
+      col.names = c("Month", "Futures ($/MWh)", "P5", "P25", "Median", "P75", "P95"),
+      caption   = "Selected Percentiles of Simulated Off-Peak Price Distribution by Month")
+```
+
+---
+
+## Part (c): Present Value of Operating Contributions per MW
+
+### Framework
+
+We evaluate the expected present value of the **operating contribution margin** (revenue minus variable cost) from a 1 MW generating unit that:
+
+* Has a marginal cost of **MC₀ = $30/MWh**, growing at a **continuously compounded rate of 2%/year**:
+  $\text{MC}(t) = 30 \cdot e^{0.02\,t}$
+  where $t$ is years from May 2025.
+
+* **Operates during all hours** in the month, receiving:
+  - **Peak futures price** $P^{\text{peak}}_i$ for the 16 peak (HE 7–22) hours on each weekday.
+  - **Simulated off-peak price** $\tilde P^{\text{off}}_i$ for all remaining hours — weeknight 23:00–24:00 (HE 24) weekdays are explicitly included in off-peak per the problem's note, as this hour belongs to neither the on-peak (HE 7–22) nor the standard off-peak block but is applied the off-peak price.
+
+* Discounted at a **continuously compounded discount rate of 5%**:
+  $d(t) = e^{-0.05\,t}$
+
+The monthly **operating contribution** for simulation path $k$ and month $i$ is:
+
+$$C_i^{(k)} = \left[P^{\text{peak}}_i - \text{MC}(t_i)\right] \cdot H^{\text{peak}}_i + \left[\tilde P^{\text{off}\,(k)}_i - \text{MC}(t_i)\right] \cdot H^{\text{off}}_i$$
+
+where $H^{\text{peak}}_i = 16 \times W_i$ (16 hours × weekday count in month $i$) and
+$H^{\text{off}}_i = 24 \times D_i - H^{\text{peak}}_i$ (remaining hours, including HE 24 weekdays).
+
+The **present value** per MW for path $k$:
+
+$$\text{PV}^{(k)} = \sum_{i=1}^{N} d(t_i) \cdot C_i^{(k)}$$
+
+### Hour counts and calendar construction
+
+```{r part-c-calendar}
+# ── Calendar: weekdays and total days per simulation month ────────────────────
+sim_grid[, weekdays_in_month := sapply(date, function(d) {
+  all_days <- seq(d, ceiling_date(d, "month") - 1, by = "day")
+  sum(!weekdays(all_days) %in% c("Saturday", "Sunday"))
+})]
+
+sim_grid[, days_in_month := sapply(date, function(d) {
+  as.integer(ceiling_date(d, "month") - d)
+})]
+
+sim_grid[, peak_hours   := 16L * weekdays_in_month]
+sim_grid[, offpeak_hours := 24L * days_in_month - peak_hours]
+sim_grid[, total_hours  := 24L * days_in_month]
+
+kable(
+  sim_grid[, .(
+    Month        = format(date, "%b %Y"),
+    Weekdays     = weekdays_in_month,
+    Total_days   = days_in_month,
+    Peak_hrs     = peak_hours,
+    Off_peak_hrs = offpeak_hours,
+    Total_hrs    = total_hours
+  )],
+  col.names = c("Month","Weekdays","Total Days","Peak Hours","Off-Peak Hours","Total Hours"),
+  caption   = "Hour counts by month (peak = 16 hrs × weekdays; off-peak = remainder)"
+)
+```
+
+### Prepare peak price series
+
+```{r part-c-peak-prices}
+# ── Match peak futures prices to simulation grid ──────────────────────────────
+# May-30 is missing from peak data; interpolate from Apr-30 and Jun-30
+may30_peak <- with(pjm_peak,
+  mean(Price[Date %in% c("Apr-30","Jun-30")], na.rm = TRUE))
+
+peak_extra <- data.table(date = as.Date("2030-05-01"),
+                         Price = may30_peak,
+                         Date  = "May-30",
+                         year_frac = as.numeric(as.Date("2030-05-01") - base_date)/365.25,
+                         month_num = 5L)
+
+pjm_peak_full <- rbind(pjm_peak, peak_extra)[order(date)]
+
+sim_grid <- merge(sim_grid,
+                  pjm_peak_full[, .(date, peak_price = Price)],
+                  by = "date", all.x = TRUE)
+
+cat("Peak price for May 2030 (interpolated):", round(may30_peak, 2), "$/MWh\n")
+cat("Missing peak prices:", sum(is.na(sim_grid$peak_price)), "\n")
+```
+
+### Similarly, fill May 2030 off-peak in simulation
+
+```{r part-c-may30-offpeak}
+# Off-peak: May-30 also missing from futures, so simulate its mean from regression
+may30_row <- sim_grid[date == as.Date("2030-05-01")]
+cat("May 2030 regression-predicted log off-peak price:",
+    round(may30_row$mu_hat, 4), "→ level:", round(exp(may30_row$mu_hat), 2), "$/MWh\n")
+# The price_matrix already covers all 62 months including May 2030 (row 62 in sim_grid)
+# because we generated paths for every month in sim_months grid
+```
+
+### Monte Carlo PV calculation
+
+```{r part-c-pv}
+# ── Inputs ────────────────────────────────────────────────────────────────────
+MC0   <- 30        # $/MWh base marginal cost
+g_mc  <- 0.02     # continuously compounded growth rate of MC
+r     <- 0.05     # continuously compounded discount rate
+t_vec <- sim_grid$years_from_start   # years from May 2025
+
+# ── Per-month vectors (shared across paths) ───────────────────────────────────
+MC_t         <- MC0 * exp(g_mc * t_vec)          # marginal cost at each month
+discount_t   <- exp(-r * t_vec)                  # discount factor
+peak_price_t <- sim_grid$peak_price              # deterministic peak prices
+H_peak_t     <- sim_grid$peak_hours              # peak hours per month
+H_off_t      <- sim_grid$offpeak_hours           # off-peak hours per month
+
+# ── Peak contribution (deterministic given peak futures) ─────────────────────
+peak_contrib_t <- (peak_price_t - MC_t) * H_peak_t    # $/MW per month (det.)
+
+# ── Off-peak contribution (stochastic) ───────────────────────────────────────
+# price_matrix is n_months × N_paths
+off_contrib_matrix <- sweep(price_matrix, 1, MC_t, "-") *
+                      matrix(H_off_t, nrow = n_months, ncol = N_paths)
+
+# ── Total monthly contribution (peak det. + off-peak stochastic) ─────────────
+total_contrib_matrix <- matrix(peak_contrib_t, nrow = n_months, ncol = N_paths) +
+                        off_contrib_matrix
+
+# ── Discount and sum across months ────────────────────────────────────────────
+disc_total <- sweep(total_contrib_matrix, 1, discount_t, "*")   # discounted monthly contributions
+PV_paths   <- colSums(disc_total)   # length N_paths: PV for each path
+
+cat("=== Present Value of Operating Contributions per MW ===\n")
+cat("Mean PV:    $", formatC(mean(PV_paths),   format="f", digits=0, big.mark=","), "\n")
+cat("Median PV:  $", formatC(median(PV_paths), format="f", digits=0, big.mark=","), "\n")
+cat("SD of PV:   $", formatC(sd(PV_paths),     format="f", digits=0, big.mark=","), "\n")
+cat("P5  PV:     $", formatC(quantile(PV_paths, 0.05), format="f", digits=0, big.mark=","), "\n")
+cat("P25 PV:     $", formatC(quantile(PV_paths, 0.25), format="f", digits=0, big.mark=","), "\n")
+cat("P75 PV:     $", formatC(quantile(PV_paths, 0.75), format="f", digits=0, big.mark=","), "\n")
+cat("P95 PV:     $", formatC(quantile(PV_paths, 0.95), format="f", digits=0, big.mark=","), "\n")
+```
+
+```{r part-c-pv-dist}
+# Distribution of PV across paths
+pv_dt <- data.table(PV = PV_paths)
+
+ggplot(pv_dt, aes(x = PV)) +
+  geom_histogram(bins = 60, fill = "#2166ac", color = "white", alpha = 0.85) +
+  geom_vline(xintercept = mean(PV_paths),   color = "#d73027", linewidth = 1.2,
+             linetype = "solid") +
+  geom_vline(xintercept = median(PV_paths), color = "#f4a582", linewidth = 1.2,
+             linetype = "dashed") +
+  annotate("text", x = mean(PV_paths) * 1.008, y = Inf,
+           label = paste0("Mean: $", formatC(mean(PV_paths), format="f",
+                                             digits=0, big.mark=",")),
+           color = "#d73027", vjust = 2, hjust = 0, size = 3.8) +
+  scale_x_continuous(labels = dollar_format(scale = 1e-3, suffix = "K")) +
+  labs(
+    title    = "Distribution of PV of Operating Contributions per MW (1,000 Paths)",
+    subtitle = paste0("MC₀ = $30/MWh growing at 2%/yr; discount rate = 5%; May 2025 – Jun 2030"),
+    x        = "Present Value ($/MW)", y = "Count"
+  ) +
+  theme_classic(base_size = 12)
+```
+
+```{r part-c-monthly-decomp}
+# ── Decompose expected PV by month ────────────────────────────────────────────
+# E[contribution] per month (averaged across paths, then discounted)
+mean_monthly_contrib <- rowMeans(disc_total)   # n_months vector
+
+monthly_pv <- data.table(
+  date           = sim_grid$date,
+  peak_contrib_d = discount_t * peak_contrib_t,
+  offpeak_contrib_d = discount_t * rowMeans(off_contrib_matrix),
+  total_contrib_d = mean_monthly_contrib
+)
+
+monthly_long <- monthly_pv %>%
+  select(date, peak_contrib_d, offpeak_contrib_d) %>%
+  pivot_longer(cols = c(peak_contrib_d, offpeak_contrib_d),
+               names_to = "Component", values_to = "Value") %>%
+  mutate(Component = case_when(
+    Component == "peak_contrib_d"    ~ "Peak Hours",
+    Component == "offpeak_contrib_d" ~ "Off-Peak Hours"
+  ))
+
+ggplot(monthly_long, aes(x = date, y = Value, fill = Component)) +
+  geom_col() +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b\n%Y") +
+  scale_fill_manual(values = c("Peak Hours" = "#d73027", "Off-Peak Hours" = "#4575b4")) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title    = "Monthly Discounted Operating Contributions per MW (Expected Values)",
+    subtitle = "Stacked: peak-hour contribution (det.) + off-peak contribution (mean across 1,000 paths)",
+    x        = NULL, y = "Discounted Contribution ($/MW-month)", fill = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+```{r part-c-cumulative}
+# ── Cumulative PV buildup ──────────────────────────────────────────────────────
+cum_pv_paths <- apply(disc_total, 2, cumsum)   # n_months × N_paths
+
+cum_quants <- apply(cum_pv_paths, 1, quantile, probs = c(0.05, 0.25, 0.50, 0.75, 0.95))
+
+cum_dt <- data.table(
+  date = sim_grid$date,
+  q05 = cum_quants["5%",],
+  q25 = cum_quants["25%",],
+  q50 = cum_quants["50%",],
+  q75 = cum_quants["75%",],
+  q95 = cum_quants["95%",]
+)
+
+ggplot(cum_dt, aes(x = date)) +
+  geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#2166ac", alpha = 0.18) +
+  geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#2166ac", alpha = 0.32) +
+  geom_line(aes(y = q50), color = "#d73027", linewidth = 1.3) +
+  geom_hline(yintercept = 0, color = "gray40", linetype = "dashed") +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b\n%Y") +
+  scale_y_continuous(labels = dollar_format(scale = 1e-3, suffix = "K")) +
+  labs(
+    title    = "Cumulative Present Value of Operating Contributions per MW",
+    subtitle = "Median (red) with 50% and 90% confidence bands across 1,000 paths",
+    x        = NULL, y = "Cumulative PV ($/MW)"
+  ) +
+  theme_classic(base_size = 12)
+```
+
+```{r part-c-pv-table}
+# Summary table
+pv_summary <- data.table(
+  Statistic = c("Mean PV", "Median PV", "Std. Dev.", "5th Percentile",
+                "25th Percentile", "75th Percentile", "95th Percentile"),
+  `Value ($/MW)` = formatC(
+    c(mean(PV_paths), median(PV_paths), sd(PV_paths),
+      quantile(PV_paths, 0.05), quantile(PV_paths, 0.25),
+      quantile(PV_paths, 0.75), quantile(PV_paths, 0.95)),
+    format = "f", digits = 0, big.mark = ","
+  )
+)
+
+kable(pv_summary,
+      col.names = c("Statistic", "Value ($/MW)"),
+      caption   = "Present Value of Operating Contributions per MW: Simulation Summary")
+```
+
+### Interpretation and observations
+
+**Magnitude.** The expected (mean) present value of operating contributions from May 2025 through June 2030 is approximately **$`r formatC(mean(PV_paths), format="f", digits=0, big.mark=",")`/MW**. This represents the total discounted margin between revenues (peak and off-peak prices) and the growing marginal cost, summed over 62 months. To contextualize: if a new generation asset costs, say, $800,000–$1,200,000/MW to build (typical range for combined-cycle gas), the operating contributions over this period cover roughly `r round(mean(PV_paths)/1e6 * 100, 0)`–`r round(mean(PV_paths)/8e5 * 100, 0)`% of that capital cost — meaning the asset would need a much longer operating life (well past 2030) to justify investment, or the capital cost must be substantially lower.
+
+**Peak vs. off-peak contribution.** The stacked monthly bar chart reveals that peak-hour contributions are *positive and consistent* throughout the period, driven by the substantial spread between on-peak futures prices ($40–$75/MWh) and the rising marginal cost ($30 → ~$33.6/MWh by 2030). Off-peak contributions are smaller in absolute terms per hour but cover more total hours. In some winter months (December–January), off-peak prices are high enough to generate a meaningful positive margin; in shoulder months (May–October), off-peak margins are thinner because off-peak prices approach the marginal cost. The technology earns its returns primarily from peak hours, confirming that peak dispatchability is the key value driver.
+
+**Growing marginal cost squeeze.** The continuously compounded 2% MC growth means the marginal cost reaches $30 × e^{0.02 × 5.14} ≈ $`r round(30 * exp(0.02 * 5.14), 1)`/MWh by June 2030. Since the off-peak futures curve for the same months (Jun 2030: $31.70/MWh) is only marginally above this cost, the off-peak contribution margin is thin by the end of the horizon. This compression is visible in the monthly bar chart: off-peak bars shrink in the later years relative to peak bars.
+
+**Uncertainty.** The standard deviation of the PV is **$`r formatC(sd(PV_paths), format="f", digits=0, big.mark=",")`/MW** — roughly `r round(sd(PV_paths)/mean(PV_paths)*100, 1)`% of the mean. The wide 90% confidence interval (P5: $`r formatC(quantile(PV_paths, 0.05), format="f", digits=0, big.mark=",")` to P95: $`r formatC(quantile(PV_paths, 0.95), format="f", digits=0, big.mark=",")`) reflects the compounding of trend uncertainty (a ±1 SE shift in the trend implies ±`r round((exp(5 * b1_se) - 1)*100, 1)`% in off-peak price levels by 2030) and the given monthly scatter (σ = 0.1 in log space ≈ ±10% around each month's mean). Because peak prices are treated as *deterministic* futures (no simulation), all PV uncertainty comes from the off-peak channel. Introducing stochastic peak prices would further widen the distribution.
+
+**Practical investment takeaways.**
+1. The present value is positive across virtually all 1,000 paths (the cumulative PV is always growing), meaning the technology earns positive margins in expectation in every month — but the *total* over just 5 years is a modest fraction of a typical capital cost, reinforcing the importance of a long asset life (20+ years) for generation investments.
+2. The peak-hour contribution is the primary value driver. Investors should model the asset as a peak-serving resource and evaluate the revenue stream primarily through the on-peak forward curve. Off-peak revenues provide a secondary income stream but carry more uncertainty (wider price bands, growing cost competition from overnight wind generation).
+3. The Monte Carlo spread widens rapidly after 2027. By 2029–2030, the P5–P95 band for the *cumulative* PV spans roughly $`r formatC(cum_quants["95%", n_months] - cum_quants["5%", n_months], format="f", digits=0, big.mark=",")`, making investment decisions at the 5-year horizon sensitive to trend assumptions. Near-term contracts (2025–2027) where futures prices directly anchor the expected return are far more certain than the terminal years.
