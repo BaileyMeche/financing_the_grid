@@ -34,7 +34,7 @@ library(lubridate)
 library(scales)
 library(knitr)
 
-wd <- "C:/Users/Owner/Box/spring26/GridFinancing/financing_the_grid/Homework 4"
+wd <- "C:/Users/baile/Box/spring26/GridFinancing/financing_the_grid/Homework 4"
 
 # ── Load futures data ──────────────────────────────────────────────────────────
 pjm_off  <- fread(file.path(wd, "pjm_noillinois_offpeak_futures2025.csv"))
@@ -150,16 +150,16 @@ par(mfrow = c(1, 1))
 **Trend (β₁ = `r round(coef(fit_off)["year_frac"], 4)`).**
 The positive annual trend coefficient implies that the market expects off-peak prices to grow at approximately `r round(coef(fit_off)["year_frac"] * 100, 2)`% per year in log terms — equivalent to roughly `r round((exp(coef(fit_off)["year_frac"]) - 1) * 100, 2)`% per year in levels. This forward-looking price appreciation likely reflects the market's expectation of (i) gradual natural-gas price escalation, (ii) increasing demand from electrification (EVs, heat pumps, data centres), and (iii) retiring baseload capacity increasing the cost of marginal supply. The trend is highly statistically significant (t = 10.4, p < 0.0001) and explains the clear upward drift visible in both the on-peak and off-peak series.
 
-**Monthly seasonality (γ₂ … γ₁₂).**
+**Monthly seasonality ($\gamma_2, ..., \gamma_{1,2}$)**
 All twelve month effects are significant at p < 0.001. January is the baseline (highest off-peak price in the year), with the following pattern:
 
 * **January** (baseline): highest off-peak prices, driven by winter heating demand keeping load high even overnight and on weekends.
-* **December**: second-highest (γ₁₂ ≈ −0.196), modestly below January — holiday weeks depress weekend industrial loads but cold weather keeps residential and commercial demand elevated.
-* **February** (γ₂ ≈ −0.105): slightly below December; shorter month and moderating temperatures.
-* **July / August** (γ₇ ≈ −0.322, γ₈ ≈ −0.410): summer cooling demand shows up in peak hours but off-peak (overnight/weekend) prices are lower because industrial loads fall and wind generation (which is stronger at night) suppresses overnight prices.
-* **Shoulder months (March – June, September – October)**: the deepest seasonal discounts (γ₃ to γ₁₀ range from −0.40 to −0.62), reflecting the mild-weather periods when both heating and cooling loads are minimal and renewables can readily serve off-peak demand.
+* **December**: second-highest ($\gamma_{1,2}$  $\approx$  −0.196), modestly below January — holiday weeks depress weekend industrial loads but cold weather keeps residential and commercial demand elevated.
+* **February** ($\gamma_2$  $\approx$  −0.105): slightly below December; shorter month and moderating temperatures.
+* **July / August** ($\gamma_7$  $\approx$  −0.322, $\gamma_s$  $\approx$  −0.410): summer cooling demand shows up in peak hours but off-peak (overnight/weekend) prices are lower because industrial loads fall and wind generation (which is stronger at night) suppresses overnight prices.
+* **Shoulder months (March – June, September – October)**: the deepest seasonal discounts ($\gamma_3$) to $\gamma_{1,0}$ range from −0.40 to −0.62), reflecting the mild-weather periods when both heating and cooling loads are minimal and renewables can readily serve off-peak demand.
 
-The regression explains **`r round(summary(fit_off)$r.squared * 100, 1)`%** of the variance in log off-peak prices (Adjusted R² = `r round(summary(fit_off)$adj.r.squared * 100, 1)`%), with a residual standard deviation of `r round(summary(fit_off)$sigma, 4)`. The Q-Q plot confirms near-normality of residuals, validating the log-linear model.
+The regression explains **`r round(summary(fit_off)$r.squared * 100, 1)`%** of the variance in log off-peak prices (Adjusted R = `r round(summary(fit_off)$adj.r.squared * 100, 1)`%), with a residual standard deviation of `r round(summary(fit_off)$sigma, 4)`. The Q-Q plot confirms near-normality of residuals, validating the log-linear model.
 
 ---
 
@@ -169,7 +169,7 @@ The regression explains **`r round(summary(fit_off)$r.squared * 100, 1)`%** of t
 
 The problem posits two distinct sources of uncertainty for the average off-peak price in month $(t, m)$:
 
-1. **Variation around the (given) mean** — σ = 0.1 in log space. This represents the realized dispersion of actual hourly prices around a known monthly mean: plant outages, intra-month weather swings, and load forecast errors.
+1. **Variation around the (given) mean** — $\sigma$ = 0.1 in log space. This represents the realized dispersion of actual hourly prices around a known monthly mean: plant outages, intra-month weather swings, and load forecast errors.
 
 2. **Variation in the mean itself** — the trend $\beta_1$ is estimated from futures prices, but futures prices themselves embed expectations that may shift. Over a longer horizon the accumulated uncertainty in the trend dominates. Specifically, the *expected* log price for month $t$ is $\mu_t = \hat\beta_0 + \hat\beta_1 \cdot t + \hat\gamma_{m_t}$, but $\hat\beta_1$ itself has estimation uncertainty $\hat\sigma_{\beta_1}$, so the uncertainty in $\mu_t$ due to trend drift is $t \cdot \hat\sigma_{\beta_1}$, which grows linearly with the horizon.
 
@@ -342,7 +342,7 @@ For each of the 1,000 paths $k = 1, \ldots, 1000$:
    This is *independent across months and paths*, capturing the idiosyncratic component.
 
 **Key output:**
-The total log-price standard deviation at a horizon of $t$ years equals $\sqrt{(t \cdot \hat\sigma_{\beta_1})^2 + 0.1^2}$. For May 2025 (t ≈ 0.33 years) this is ≈ 0.101; by June 2030 (t ≈ 5.41 years) it has grown to ≈ `r round(sqrt((5.41 * b1_se)^2 + 0.01), 3)`, dominated by trend uncertainty. The fan chart confirms this: the bands narrow near 2025 (where the futures anchor the model) and widen substantially by 2029–2030. The simulated median tracks the futures-implied curve closely, as expected, since the simulation is centered on the regression fit.
+The total log-price standard deviation at a horizon of $t$ years equals $\sqrt{(t \cdot \hat\sigma_{\beta_1})^2 + 0.1^2}$. For May 2025 (t  $\approx$  0.33 years) this is  $\approx$  0.101; by June 2030 (t  $\approx$  5.41 years) it has grown to  $\approx$  `r round(sqrt((5.41 * b1_se)^2 + 0.01), 3)`, dominated by trend uncertainty. The fan chart confirms this: the bands narrow near 2025 (where the futures anchor the model) and widen substantially by 2029–2030. The simulated median tracks the futures-implied curve closely, as expected, since the simulation is centered on the regression fit.
 
 ```{r part-b-summary-table}
 # Summarize key percentiles for selected months
@@ -614,9 +614,9 @@ kable(pv_summary,
 
 **Peak vs. off-peak contribution.** The stacked monthly bar chart reveals that peak-hour contributions are *positive and consistent* throughout the period, driven by the substantial spread between on-peak futures prices ($40–$75/MWh) and the rising marginal cost ($30 → ~$33.6/MWh by 2030). Off-peak contributions are smaller in absolute terms per hour but cover more total hours. In some winter months (December–January), off-peak prices are high enough to generate a meaningful positive margin; in shoulder months (May–October), off-peak margins are thinner because off-peak prices approach the marginal cost. The technology earns its returns primarily from peak hours, confirming that peak dispatchability is the key value driver.
 
-**Growing marginal cost squeeze.** The continuously compounded 2% MC growth means the marginal cost reaches $30 × e^{0.02 × 5.14} ≈ $`r round(30 * exp(0.02 * 5.14), 1)`/MWh by June 2030. Since the off-peak futures curve for the same months (Jun 2030: $31.70/MWh) is only marginally above this cost, the off-peak contribution margin is thin by the end of the horizon. This compression is visible in the monthly bar chart: off-peak bars shrink in the later years relative to peak bars.
+**Growing marginal cost squeeze.** The continuously compounded 2% MC growth means the marginal cost reaches $30 × e^{0.02 × 5.14}  $\approx$  $`r round(30 * exp(0.02 * 5.14), 1)`/MWh by June 2030. Since the off-peak futures curve for the same months (Jun 2030: $31.70/MWh) is only marginally above this cost, the off-peak contribution margin is thin by the end of the horizon. This compression is visible in the monthly bar chart: off-peak bars shrink in the later years relative to peak bars.
 
-**Uncertainty.** The standard deviation of the PV is **$`r formatC(sd(PV_paths), format="f", digits=0, big.mark=",")`/MW** — roughly `r round(sd(PV_paths)/mean(PV_paths)*100, 1)`% of the mean. The wide 90% confidence interval (P5: $`r formatC(quantile(PV_paths, 0.05), format="f", digits=0, big.mark=",")` to P95: $`r formatC(quantile(PV_paths, 0.95), format="f", digits=0, big.mark=",")`) reflects the compounding of trend uncertainty (a ±1 SE shift in the trend implies ±`r round((exp(5 * b1_se) - 1)*100, 1)`% in off-peak price levels by 2030) and the given monthly scatter (σ = 0.1 in log space ≈ ±10% around each month's mean). Because peak prices are treated as *deterministic* futures (no simulation), all PV uncertainty comes from the off-peak channel. Introducing stochastic peak prices would further widen the distribution.
+**Uncertainty.** The standard deviation of the PV is **$`r formatC(sd(PV_paths), format="f", digits=0, big.mark=",")`/MW** — roughly `r round(sd(PV_paths)/mean(PV_paths)*100, 1)`% of the mean. The wide 90% confidence interval (P5: $`r formatC(quantile(PV_paths, 0.05), format="f", digits=0, big.mark=",")` to P95: $`r formatC(quantile(PV_paths, 0.95), format="f", digits=0, big.mark=",")`) reflects the compounding of trend uncertainty (a ±1 SE shift in the trend implies ±`r round((exp(5 * b1_se) - 1)*100, 1)`% in off-peak price levels by 2030) and the given monthly scatter (σ = 0.1 in log space  $\approx$  ±10% around each month's mean). Because peak prices are treated as *deterministic* futures (no simulation), all PV uncertainty comes from the off-peak channel. Introducing stochastic peak prices would further widen the distribution.
 
 **Practical investment takeaways.**
 1. The present value is positive across virtually all 1,000 paths (the cumulative PV is always growing), meaning the technology earns positive margins in expectation in every month — but the *total* over just 5 years is a modest fraction of a typical capital cost, reinforcing the importance of a long asset life (20+ years) for generation investments.
@@ -812,8 +812,10 @@ Adding wind reduces the average weekly operating cost by approximately \$`r form
 
 Starting from the initial state (full reservoir, coal in setup, gas idle), five forward paths are simulated using the wind-extended optimal policy and the stochastic wind transition matrix (`set.seed(123)`). Each path begins in a randomly drawn wind state.
 
-#### Plot 1 — Reservoir Level: No-Wind Optimal vs. Five Wind Sample Paths
 
+#### Plot 1 — Reservoir Level: No-Wind Optimal vs. Five Wind Sample Paths
+ 
+\newpage
 ```{r q2-plot1, fig.height=4.5, dependson="q2-paths"}
 plot_dt <- data.table(hour = hours, `No Wind` = opthydro)
 for (p in 1:n_paths) {
@@ -822,35 +824,41 @@ for (p in 1:n_paths) {
 
 plot_long <- melt(plot_dt, id.vars = "hour",
                   variable.name = "series", value.name = "hydro")
-plot_long[, type := fifelse(series == "No Wind", "No Wind", "Wind Path")]
 
-ggplot(plot_long, aes(x = hour, y = hydro, color = series,
-                      linewidth = type, linetype = type)) +
-  geom_line() +
-  scale_linewidth_manual(values  = c("No Wind" = 1.4, "Wind Path" = 0.65),
-                         guide   = "none") +
-  scale_linetype_manual(values   = c("No Wind" = "dashed", "Wind Path" = "solid"),
-                        guide    = "none") +
+wind_colors <- c(
+  "No Wind"     = "black",
+  "Wind Path 1" = "#e41a1c",
+  "Wind Path 2" = "#377eb8",
+  "Wind Path 3" = "#4daf4a",
+  "Wind Path 4" = "#984ea3",
+  "Wind Path 5" = "#ff7f00"
+)
+
+# Draw the two groups as separate layers with fixed linewidths —
+# avoids mapping linewidth as an aesthetic, which prevents ghost legend space.
+ggplot(plot_long, aes(x = hour, y = hydro, color = series)) +
+  geom_line(data = plot_long[series != "No Wind"],
+            linetype = "solid",  linewidth = 0.65) +
+  geom_line(data = plot_long[series == "No Wind"],
+            linetype = "dashed", linewidth = 1.4) +
+  scale_color_manual(values = wind_colors) +
   scale_x_continuous(breaks = seq(1, 169, 24),
-                     labels = c("Mon","Tue","Wed","Thu","Fri","Sat","Sun","End")) +
+                     labels = c("Mon","Tue","Wed","Thu",
+                                "Fri","Sat","Sun","End")) +
   scale_y_continuous(breaks = 0:12) +
-  scale_color_manual(values = c(
-    "No Wind"      = "black",
-    "Wind Path 1"  = "#e41a1c",
-    "Wind Path 2"  = "#377eb8",
-    "Wind Path 3"  = "#4daf4a",
-    "Wind Path 4"  = "#984ea3",
-    "Wind Path 5"  = "#ff7f00"
-  )) +
-  labs(title   = "Reservoir Level: No-Wind Optimal vs. Five Wind Sample Paths",
-       x       = "Hour of Week",
-       y       = "Hydro Reservoir Level (0\u201312)",
-       color   = "Path") +
+  labs(title = "Reservoir Level: No-Wind Optimal vs. Five Wind Sample Paths",
+       x     = "Hour of Week",
+       y     = "Hydro Reservoir Level (0\u201312)",
+       color = NULL) +
   theme_classic(base_size = 12) +
-  theme(legend.position = "right")
+  theme(legend.position = "center")
 ```
 
+ 
+
 #### Plot 2 — Wind State Composition Across Sample Paths
+
+\newpage
 
 ```{r q2-plot2, fig.height=4, dependson="q2-paths"}
 wind_comp <- data.table(
@@ -875,9 +883,11 @@ ggplot(wind_comp, aes(x = path, y = pct, fill = wind_label)) +
   labs(title = "Wind State Composition Across Sample Paths",
        x = NULL, y = "Share of Hours") +
   theme_classic(base_size = 12) +
-  theme(legend.position = "right",
+  theme(legend.position = "center",
         axis.text.x = element_text(face = "bold"))
 ```
+
+\newpage
 
 ### What Differences Are Seen?
 
