@@ -3,12 +3,15 @@ title: "Homework 4 – PJM No-Illinois Futures: Seasonality, Monte Carlo, and Op
 author: "Group 2: Bailey Meche, Eliott Raia, University of Chicago"
 geometry: "left=1.5cm,right=1.5cm,top=1.5cm,bottom=1.5cm"
 date: "April 2026"
-output: pdf_document
+output:
+  pdf_document:
+    latex_engine: xelatex
 header-includes:
   - \usepackage{caption}
   - \usepackage{float}
   - \usepackage{xcolor}
   - \usepackage{amsmath}
+  - \usepackage{fontspec}
 ---
 
 ```{r setup, include=FALSE}
@@ -31,7 +34,7 @@ library(lubridate)
 library(scales)
 library(knitr)
 
-wd <- "C:/Users/baile/Box/spring26/GridFinancing/financing_the_grid/Homework 4"
+wd <- "C:/Users/Owner/Box/spring26/GridFinancing/financing_the_grid/Homework 4"
 
 # ── Load futures data ──────────────────────────────────────────────────────────
 pjm_off  <- fread(file.path(wd, "pjm_noillinois_offpeak_futures2025.csv"))
@@ -621,120 +624,276 @@ kable(pv_summary,
 3. The Monte Carlo spread widens rapidly after 2027. By 2029–2030, the P5–P95 band for the *cumulative* PV spans roughly $`r formatC(cum_quants["95%", n_months] - cum_quants["5%", n_months], format="f", digits=0, big.mark=",")`, making investment decisions at the 5-year horizon sensitive to trend assumptions. Near-term contracts (2025–2027) where futures prices directly anchor the expected return are far more certain than the terminal years.
 
 
-# Q2 
-Consider the dynamic programming model of the pump hydro facility that is given in the R script, pump_hydro_example.R. Suppose the generation also includes a wind generator with wind in one of three states: calm, moderate, or strong. From hour to hour, the wind can randomly change. With probability 0.5, the wind stays in the same state and with probability 0.25, the wind changes to one of the other two states (i.e., if it is calm in the hour ending 0500, then it will be calm with 50% chance, moderate with 25% chance, and strong with 25% chance in the hour ending 0600. When winds are calm, the wind generator has 0 output. When winds are moderate, the wind generator can produce up to 1000 MW’s. When winds are strong, the wind generator can produce up to 2000 MW’s. You can assume that all startup, shutdown, and marginal costs of the wind generator are 0 and that you can curtail any amount of wind up to the capacity. Add the wind state and generator into the dynamic program model and solve for the optimal actions and values in each state with this extension. Note that you cannot control which wind state you start or end in but you should return the pump hydro facility to its full state at the end of each weekend. Assuming you are equally likely to be in any of the wind states, find the average total cost including wind for the week and compare this to the solution without the wind generator. Generate and plot 5 sample paths of wind states and associate hydro levels for the week. Compare these plots to the hydro plan without wind generation. What differences do you see? What does this mean for the value of the pump hydro facility?
+---
 
-Expanded State Space
-The original pump hydro model in pump_hydro_example.R has 390 states: 13 reservoir levels (0–12) × 10 coal plant states × 3 gas plant states. To incorporate wind, each of these 390 thermal/hydro states is now indexed by the current wind state, expanding the total to 1,170 states (390 × 3). The extended state is encoded as:  s = 390×(w−1) + s_thermal,  where w ∈ {1, 2, 3}.
+## Question 2: Pump Hydro with Stochastic Wind Extension
 
-Wind State	Condition	Maximum Output
-w = 1	Calm	0 MW
-w = 2	Moderate	≤1,000 MW
-w = 3	Strong	≤2,000 MW
+Consider the dynamic programming model of the pump hydro facility in `pump_hydro_example.R`. We extend it to include a wind generator whose output fluctuates stochastically across three states. The goal is to solve for optimal dispatch, compare weekly operating costs with and without wind, and simulate sample operating paths.
 
-Wind Transition Matrix
-Wind states evolve hour-to-hour with P(stay) = 0.50 and P(transition to each other state) = 0.25:
+### Problem Setup
 
-From \ To	Calm	Moderate	Strong
-Calm	0.50	0.25	0.25
-Moderate	0.25	0.50	0.25
-Strong	0.25	0.25	0.50
+**Wind generator parameters.** The wind generator operates in one of three states each hour, with zero startup, shutdown, and marginal costs; any amount of wind up to capacity may be curtailed:
 
-Modified DP Recursion
-Two key changes are made to the backward induction. First, wind reduces the net demand that thermal and hydro must serve. For action k in wind state w, the adjusted effective demand is:
-adj_effdem = max(0,  base_effdem − wind_cap[w])
-Second, the cost-to-go must take the expected value over future wind states, since the wind transitions stochastically:
-V(i,j) = minₖ { r(s,a) + Σₘ P(w′|w) · V(i+1, encode(w′, s′_thermal)) }
-The terminal condition sets V(169, encode(w, s₀)) = 0 for all three wind states at the initial (full reservoir) thermal state, requiring the reservoir to be returned to full regardless of the ending wind state.
+| Wind State | Condition | Maximum Output |
+|:---:|:---:|:---:|
+| $w = 1$ | Calm | 0 MW |
+| $w = 2$ | Moderate | $\leq$ 1,000 MW |
+| $w = 3$ | Strong | $\leq$ 2,000 MW |
 
-Average Total Cost: With vs. Without Wind
-After solving the backward induction for both the original (no-wind) and wind-extended models, the average total costs over the 168-hour week are:
+**Wind transition matrix.** From hour to hour, the wind stays in the same state with probability 0.50 and transitions to each of the other two states with probability 0.25:
 
-Scenario	Total Weekly Cost	vs. Baseline
-No wind (original model)	$6,536,390	—
-With wind (stochastic, equally likely start)	\$5,650,970	−$885,420  (−13.6%)
+| From $\backslash$ To | Calm | Moderate | Strong |
+|:---:|:---:|:---:|:---:|
+| Calm     | 0.50 | 0.25 | 0.25 |
+| Moderate | 0.25 | 0.50 | 0.25 |
+| Strong   | 0.25 | 0.25 | 0.50 |
 
-The with-wind average is computed as the mean of the optimal cost-to-go at stage 1 over all three equally likely starting wind states: Costₐᵥᶜ = (1/3)×[V(1, encode(1,s₀)) + V(1, encode(2,s₀)) + V(1, encode(3,s₀))].
+### Expanded State Space
 
-Adding wind reduces the average weekly operating cost by \$885,420 (13.6%). This saving comes directly from wind displacing costly thermal generation: whenever wind is moderate or strong, it covers up to 1,000–2,000 MW of load at zero fuel cost, reducing the hours the gas peaker (at \$40/MWh) and coal plant (at \$15/MWh) need to run. Since nuclear is always online, the marginal generator wind displaces is gas first, then coal.
+The original model encodes 390 states: $13 \times 10 \times 3$ (reservoir levels $\times$ coal states $\times$ gas states). Adding the wind dimension expands the total to $390 \times 3 = 1{,}170$ states. The extended state index is:
+$$s_{\text{ext}} = 390 \times (w - 1) + s_{\text{thermal}}, \quad w \in \{1, 2, 3\}$$
 
-### Five Sample Paths: Wind States and Hydro Levels
-Plot 1 — Reservoir Level: No-Wind Optimal vs. 5 Wind Sample Paths
-Starting from the initial state (full reservoir, coal in setup, gas in setup), five forward paths are simulated using the wind-extended optimal policy and stochastic wind transitions (set.seed(123)). Each path starts in a randomly drawn wind state.
+### Modified DP Recursion
 
-## -- Plot 1: Hydro level comparison (no wind vs 5 wind paths)
-```{r q2 }
+Two changes are made to the backward induction relative to `pump_hydro_example.R`:
+
+1. **Demand reduction.** Wind provides zero-cost energy, so the net demand that thermal and hydro must serve is:
+$$\text{adj\_effdem} = \max(0,\ \text{base\_effdem} - \text{wind\_cap}[w])$$
+
+2. **Expected cost-to-go.** Because the next wind state is stochastic, the Bellman equation becomes:
+$$V(i, s_{\text{ext}}) = \min_k \left\{ r(s, a) + \sum_{w’=1}^{3} P(w’ \mid w) \cdot V\!\left(i+1,\ 390(w’-1) + s’_{\text{thermal}}\right) \right\}$$
+
+The terminal condition requires the reservoir to be full at the end of the week for all three wind states: $V(169,\ 390(w-1) + s_0) = 0$ for $w \in \{1,2,3\}$.
+
+### Source Baseline Model and Solve Wind-Extended DP
+
+```{r q2-source}
+# Source the original pump hydro DP — defines demand, dpcost, dpact, opthydro,
+# optcost, stages, states, action, initial, infty, stcost, accost, nxtst, etc.
 source("pump_hydro_example.R")
 ```
 
-```{r q2 plot 1}
-plot_dt <- data.table(
-  hour  = hours,
-  `No Wind` = opthydro
-)
-n_paths <- length(opthydro)
-for (p in 1:n_paths) plot_dt[[paste0("Wind path ", p)]] <- path_hydro[, p]
+```{r q2-wind-dp, cache=TRUE}
+# ── Wind parameters ────────────────────────────────────────────────────────────
+n_wind     <- 3L
+wind_cap   <- c(0L, 1000L, 2000L)          # MW capacity per wind state
+wind_trans <- matrix(
+  c(0.50, 0.25, 0.25,
+    0.25, 0.50, 0.25,
+    0.25, 0.25, 0.50),
+  nrow = n_wind, byrow = TRUE)
 
-plot_long <- melt(plot_dt, id.vars = "hour", variable.name = "series", value.name = "hydro")
-plot_long[, is_wind := series != "No Wind"]
+ext_states <- states * n_wind              # 390 × 3 = 1,170
 
-p1 <- ggplot(plot_long, aes(x = hour, y = hydro,
-                             color = series,
-                             linetype = ifelse(is_wind, "Wind", "No Wind"),
-                             linewidth = ifelse(is_wind, 0.5, 1.2))) +
+# ── Extended DP arrays ─────────────────────────────────────────────────────────
+ext_dpact  <- matrix(1L,    nrow = stages + 1, ncol = ext_states)
+ext_dpcost <- matrix(infty, nrow = stages + 1, ncol = ext_states)
+
+# Terminal condition: full reservoir required at end regardless of wind state
+for (w in 1:n_wind) {
+  ext_dpcost[stages + 1, (w - 1L) * states + initial] <- 0
+}
+
+# ── Backward induction ─────────────────────────────────────────────────────────
+for (i in stages:1) {
+  for (w in 1:n_wind) {
+    for (j in 1:states) {
+      ext_j     <- (w - 1L) * states + j
+      hydstate  <- floor((j - 1) / 30) + 1
+      jstat     <- j - 1 - 30 * (hydstate - 1)
+      coalstate <- floor(jstat / 3) + 1
+      gasstate  <- jstat - 3 * (coalstate - 1) + 1
+
+      for (k in 1:action) {
+        hydact  <- floor((k - 1) / 4) + 1
+        kact    <- k - 1 - 4 * (hydact - 1)
+        gasact  <- floor(kact / 2) + 1
+        coalact <- kact - 2 * (gasact - 1) + 1
+
+        nx <- nxtst(hydstate, coalstate, gasstate, hydact, gasact, coalact)
+
+        # Effective demand adjusted for wind and hydro action
+        if (hydact == 1L) {
+          base_effdem <- demand[i] + fillpump
+        } else if (hydact == 2L) {
+          base_effdem <- demand[i] - genpump
+        } else {
+          base_effdem <- demand[i]
+        }
+        adj_effdem <- max(0, base_effdem - wind_cap[w])
+
+        sc <- stcost(coalstate, gasstate, adj_effdem)
+        ac <- accost(hydstate, coalstate, gasstate, hydact, gasact, coalact)
+
+        # Expected cost-to-go over wind transitions (vectorised dot product)
+        next_idx <- (0:(n_wind - 1)) * states + nx
+        ev       <- sum(wind_trans[w, ] * ext_dpcost[i + 1, next_idx])
+
+        newcst <- sc + ac + ev
+        if (newcst < ext_dpcost[i, ext_j]) {
+          ext_dpcost[i, ext_j] <- newcst
+          ext_dpact[i, ext_j]  <- k
+        }
+      }
+    }
+  }
+}
+
+# ── Cost comparison ────────────────────────────────────────────────────────────
+no_wind_cost  <- dpcost[1, initial]
+avg_wind_cost <- mean(sapply(1:n_wind, function(w)
+  ext_dpcost[1, (w - 1L) * states + initial]))
+cost_saving   <- no_wind_cost - avg_wind_cost
+pct_saving    <- cost_saving / no_wind_cost * 100
+
+cat("No-wind total weekly cost:   $",
+    formatC(no_wind_cost,  format = "f", digits = 0, big.mark = ","), "\n")
+cat("With-wind avg weekly cost:   $",
+    formatC(avg_wind_cost, format = "f", digits = 0, big.mark = ","), "\n")
+cat("Cost reduction:              $",
+    formatC(cost_saving,   format = "f", digits = 0, big.mark = ","),
+    "(", round(pct_saving, 1), "%)\n")
+```
+
+```{r q2-paths, cache=TRUE, dependson="q2-wind-dp"}
+# ── Simulate 5 forward sample paths using the wind-extended optimal policy ─────
+set.seed(123)
+n_paths    <- 5L
+hours      <- 1:(stages + 1)
+path_hydro <- matrix(NA_integer_, nrow = stages + 1, ncol = n_paths)
+path_wind  <- matrix(NA_integer_, nrow = stages + 1, ncol = n_paths)
+
+for (p in 1:n_paths) {
+  cur_wind  <- sample(1:n_wind, 1)   # equally likely starting wind state
+  cur_state <- initial
+
+  path_hydro[1, p] <- floor((cur_state - 1) / 30)
+  path_wind[1, p]  <- cur_wind
+
+  for (i in 1:stages) {
+    ext_j     <- (cur_wind - 1L) * states + cur_state
+    act       <- ext_dpact[i, ext_j]
+
+    hydstate  <- floor((cur_state - 1) / 30) + 1
+    jstat     <- cur_state - 1 - 30 * (hydstate - 1)
+    coalstate <- floor(jstat / 3) + 1
+    gasstate  <- jstat - 3 * (coalstate - 1) + 1
+
+    hydact  <- floor((act - 1) / 4) + 1
+    kact    <- act - 1 - 4 * (hydact - 1)
+    gasact  <- floor(kact / 2) + 1
+    coalact <- kact - 2 * (gasact - 1) + 1
+
+    cur_state <- nxtst(hydstate, coalstate, gasstate, hydact, gasact, coalact)
+    cur_wind  <- sample(1:n_wind, 1, prob = wind_trans[cur_wind, ])
+
+    path_hydro[i + 1, p] <- floor((cur_state - 1) / 30)
+    path_wind[i + 1, p]  <- cur_wind
+  }
+}
+```
+
+### Average Total Cost: With vs. Without Wind
+
+After solving both the original and wind-extended backward inductions, the average weekly costs are:
+
+| Scenario | Total Weekly Cost | vs. Baseline |
+|:---|---:|:---:|
+| No wind (original model) | \$`r formatC(no_wind_cost, format="f", digits=0, big.mark=",")` | — |
+| With wind (equally likely start) | \$`r formatC(avg_wind_cost, format="f", digits=0, big.mark=",")` | $-$`r formatC(cost_saving, format="f", digits=0, big.mark=",")` ($-$`r round(pct_saving,1)`%) |
+
+The with-wind average is:
+$$\bar{C}_{\text{wind}} = \tfrac{1}{3}\!\left[V(1,\,s_0^{(1)}) + V(1,\,s_0^{(2)}) + V(1,\,s_0^{(3)})\right]$$
+where $s_0^{(w)} = 390(w-1) + s_0$ denotes the initial state under wind state $w$.
+
+Adding wind reduces the average weekly operating cost by approximately \$`r formatC(cost_saving, format="f", digits=0, big.mark=",")` (`r round(pct_saving,1)`%). This saving arises because wind displaces costly thermal generation: whenever wind is moderate or strong, it covers up to 1,000–2,000 MW of load at zero fuel cost, reducing the hours the gas peaker (\$40/MWh) and coal plant (\$15/MWh) are needed. Nuclear, with its minimum-output constraint, is always online; wind therefore displaces gas first, then coal at the margin.
+
+### Five Sample Paths: Reservoir and Wind States
+
+Starting from the initial state (full reservoir, coal in setup, gas idle), five forward paths are simulated using the wind-extended optimal policy and the stochastic wind transition matrix (`set.seed(123)`). Each path begins in a randomly drawn wind state.
+
+#### Plot 1 — Reservoir Level: No-Wind Optimal vs. Five Wind Sample Paths
+
+```{r q2-plot1, fig.height=4.5, dependson="q2-paths"}
+plot_dt <- data.table(hour = hours, `No Wind` = opthydro)
+for (p in 1:n_paths) {
+  set(plot_dt, j = paste0("Wind Path ", p), value = path_hydro[, p])
+}
+
+plot_long <- melt(plot_dt, id.vars = "hour",
+                  variable.name = "series", value.name = "hydro")
+plot_long[, type := fifelse(series == "No Wind", "No Wind", "Wind Path")]
+
+ggplot(plot_long, aes(x = hour, y = hydro, color = series,
+                      linewidth = type, linetype = type)) +
   geom_line() +
-  scale_linetype_manual(values = c("Wind" = "solid", "No Wind" = "dashed"), guide = "none") +
-  scale_linewidth_identity() +
-  labs(title = "Reservoir Level: No-Wind Optimal vs 5 Wind Sample Paths",
-       x = "Hour of Week", y = "Hydro Reservoir Level (0–12)",
-       color = "Path") +
-  scale_x_continuous(breaks = seq(0, 168, 24),
-                      labels = c("Mon","Tue","Wed","Thu","Fri","Sat","Sun","End")) +
-  theme_classic() + theme(legend.position = "right")
-print(p1)
-``` 
+  scale_linewidth_manual(values  = c("No Wind" = 1.4, "Wind Path" = 0.65),
+                         guide   = "none") +
+  scale_linetype_manual(values   = c("No Wind" = "dashed", "Wind Path" = "solid"),
+                        guide    = "none") +
+  scale_x_continuous(breaks = seq(1, 169, 24),
+                     labels = c("Mon","Tue","Wed","Thu","Fri","Sat","Sun","End")) +
+  scale_y_continuous(breaks = 0:12) +
+  scale_color_manual(values = c(
+    "No Wind"      = "black",
+    "Wind Path 1"  = "#e41a1c",
+    "Wind Path 2"  = "#377eb8",
+    "Wind Path 3"  = "#4daf4a",
+    "Wind Path 4"  = "#984ea3",
+    "Wind Path 5"  = "#ff7f00"
+  )) +
+  labs(title   = "Reservoir Level: No-Wind Optimal vs. Five Wind Sample Paths",
+       x       = "Hour of Week",
+       y       = "Hydro Reservoir Level (0\u201312)",
+       color   = "Path") +
+  theme_classic(base_size = 12) +
+  theme(legend.position = "right")
+```
 
-### What differences are seen?
-The most striking difference is how deeply the no-wind optimal path drains the reservoir. Without wind, the system must rely on pump hydro to shift generation intertemporally. Pumping when demand is low (charging costs $1,200 effective MW) and generating when demand is high (releasing 900 MW). This means the reservoir swings widely, dropping to near zero by midweek as the system avoids expensive gas startups. The five wind paths all maintain the reservoir at substantially higher levels (5–12 for most of the week) because wind is meeting much of the load for free. When wind is available, there is less economic pressure to use the reservoir as a buffer. Instead, the optimal policy with wind uses the reservoir more judiciously — holding water in reserve for the hours when the wind drops to calm.
+#### Plot 2 — Wind State Composition Across Sample Paths
 
-## Plot 2 — Wind State Sample Paths
-
-# -- Plot 2 (new): Stacked bar — proportion of hours in each wind state per path
-```{r q2 plot 2}
-wind_labels <- c("1" = "Calm (0 MW)", "2" = "Moderate (≤1000 MW)", "3" = "Strong (≤2000 MW)")
-
+```{r q2-plot2, fig.height=4, dependson="q2-paths"}
 wind_comp <- data.table(
-  path = rep(paste0("Path ", 1:n_paths), each = stages + 1),
-  wind = as.vector(path_wind)
-)[, .(hours = .N), by = .(path, wind)
-][, pct := hours / sum(hours), by = path
-][, wind_label := factor(wind, levels = 3:1,
-                          labels = rev(c("Calm (0 MW)", "Moderate (≤1,000 MW)", "Strong (≤2,000 MW)")))]
+  path = rep(paste0("Path ", 1:n_paths), each = nrow(path_hydro)),
+  wind = as.integer(as.vector(path_wind))
+)[, .(n_hrs = .N), by = .(path, wind)
+][, pct := n_hrs / sum(n_hrs), by = path
+][, wind_label := factor(wind, levels = 1:3,
+                          labels = c("Calm (0 MW)",
+                                     "Moderate (\u22641,000 MW)",
+                                     "Strong (\u22642,000 MW)"))]
 
-p2 <- ggplot(wind_comp, aes(x = path, y = pct, fill = wind_label)) +
+ggplot(wind_comp, aes(x = path, y = pct, fill = wind_label)) +
   geom_bar(stat = "identity", width = 0.6) +
   scale_fill_manual(
-    values = c("Calm (0 MW)"            = "#4CAF50",
-               "Moderate (≤1,000 MW)"  = "#2196F3",
-               "Strong (≤2,000 MW)"    = "#9C27B0"),
+    values = c("Calm (0 MW)"              = "#4CAF50",
+               "Moderate (\u22641,000 MW)" = "#2196F3",
+               "Strong (\u22642,000 MW)"   = "#9C27B0"),
     name = "Wind State"
   ) +
-  scale_y_continuous(labels = scales::percent_format(), expand = c(0, 0)) +
+  scale_y_continuous(labels = percent_format(), expand = c(0, 0)) +
   labs(title = "Wind State Composition Across Sample Paths",
        x = NULL, y = "Share of Hours") +
-  theme_classic() +
+  theme_classic(base_size = 12) +
   theme(legend.position = "right",
         axis.text.x = element_text(face = "bold"))
-print(p2)
-``` 
+```
 
-Each bar shows what fraction of the 168-hour week a given simulated path spent in each wind state. Because the Markov chain is symmetric — with equal transition probabilities to calm, moderate, and strong — the long-run stationary distribution is one-third in each state. All five paths land close to that theoretical benchmark, but with meaningful variation driven by the random starting state and realized transitions. Path 3, for instance, spent a disproportionate share of hours in strong wind, which explains why its reservoir (visible in Plot 1) stayed elevated through most of the week. Path 2, by contrast, was predominantly calm, forcing the system to draw down hydro more aggressively in the absence of free wind generation. This variation is exactly what makes stochastic wind challenging to manage: the optimal policy must perform well across all possible wind realizations, not just the average.
+### What Differences Are Seen?
 
-What Does This Mean for the Value of the Pump Hydro Facility?
-The pump hydro facility becomes more operationally valuable in a system with stochastic wind, but for a different reason than in the deterministic case:
-- 	Without wind: Pump hydro earns its value through price arbitrage — pumping during cheap off-peak hours and generating during expensive peak hours, smoothing the dispatch of coal and gas. The reservoir is managed on a predictable daily/weekly cycle tied to the demand curve.
-- 	With stochastic wind: Pump hydro earns additional value as a wind battery. When wind is abundant, it can absorb surplus wind (pump) instead of curtailing it. When wind drops, it can release that stored energy. This makes the reservoir level much more dependent on realized wind conditions and less tied purely to the demand cycle.
--	Net effect: The 13.6% cost reduction ($885,420/week) understates the full value of pump hydro in a wind-rich system. With wind present, the system avoids costly gas startups more often because the combination of wind + stored hydro can cover peak demand events. The pump hydro facility is effectively the key enabler of wind integration — without it, more wind would need to be curtailed.
+**Reservoir behaviour (Plot 1).** The most striking contrast is the depth to which the no-wind optimal path drains the reservoir. Without wind, pump hydro must shift generation intertemporally — pumping during cheap overnight hours (net load increase of 1,200 MW) and generating during expensive peak hours (900 MW discharge) — so the reservoir swings widely, approaching depletion by midweek. The five wind paths maintain substantially higher reservoir levels (roughly 5–12 for most of the week) because wind covers much of the load at zero cost. With wind available, there is less economic pressure to use stored water as a buffer; the optimal policy instead holds water in reserve for the hours when wind drops to calm.
 
-In summary, wind reduces average costs but also increases the optionality value of the pump hydro facility. The more uncertain and variable the generation mix, the more a flexible, zero-marginal-cost storage resource is worth.
+**Wind state composition (Plot 2).** Each bar shows the fraction of the 168-hour week a path spent in each wind state. Because the Markov chain is symmetric — with a uniform stationary distribution of one-third in each state — all five paths land close to that theoretical benchmark. However, meaningful variation remains due to the random starting state and realized transitions. Paths that were predominantly *strong* keep the reservoir elevated throughout the week; paths that were predominantly *calm* force more aggressive reservoir drawdowns, resembling the no-wind solution.
+
+### Value of the Pump Hydro Facility with Stochastic Wind
+
+The pump hydro facility becomes *more* operationally valuable in a wind-rich system, but the nature of that value changes:
+
+- **Without wind:** Hydro earns value through predictable price arbitrage — pumping in cheap off-peak windows and generating at peak — on a cycle tightly tied to the deterministic demand curve.
+
+- **With stochastic wind:** Hydro earns *additional* value as a wind integration buffer. When wind is abundant, the system can pump surplus energy instead of curtailing it. When wind drops, stored water replaces the missing generation. This makes the reservoir trajectory highly path-dependent and far less predictable than in the no-wind case.
+
+- **Net effect:** The `r round(pct_saving, 1)`% weekly cost reduction understates the full optionality value of pump hydro in a wind-rich environment. With wind, the system avoids costly gas startups more reliably because the combination of wind generation and stored hydro can together serve peak demand events that neither resource could cover alone. Pump hydro is effectively the key enabler of wind integration — without flexible storage, more wind output would need to be curtailed, reducing the net value of the wind asset.
+
+In summary, wind reduces average costs but simultaneously *increases* the option value of the pump hydro facility. The more uncertain and variable the generation mix, the more a flexible, zero-marginal-cost storage resource is worth to the system.
 
